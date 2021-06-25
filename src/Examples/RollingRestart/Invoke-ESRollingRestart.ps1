@@ -91,23 +91,29 @@ ForEach ($Stage in $Stages) {
     $TransitionStage = $false
     if ($Stage.name -Like "Pre") {
         Do {
-            # Retrieve Cluster Status
-            $es_ClusterHealth = Get-EsClusterHealth
-            $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
+            # Begin with validating remote access into the DX cluster's nodes
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Begin Stage | Target: $($Stage.SSH)"
             # 
             # Add super cool code here
             #
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | End Stage | Target: $($Stage.SSH)"
+
+            # Next transition into validating ElasticSearch Cluster Status.  If the Status is not Healthy, validate basic settings that would prevent a Healthy status.
+            # If the basic settings are not set to the pre-defined requirement, update the setting and monitor the environment for recovery.
+            # If the recovery monitoring does not progress the process will ultimately abort, indicating the cause for the abort (total max retries or max retries without progress)
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Begin Stage | Target: $($Stage.ClusterStatus)"
             if ($es_ClusterStatus -like "green") {
                 write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
+                # Cluster is Green, record Node details (ip, heap, ram, cpu, load, role, master, name)
                 $es_Nodes = Get-EsNodes
+                # Cluster is Green, record Cluster Node Count
                 $es_ClusterNodesMax = $es_ClusterStatus.number_of_nodes
+                # Cluster is Green, record the current Master node
                 $es_Master = Get-EsMaster
-                $IndexStatus = Get-EsIndexStatus
-                $IndexSettings = Get-EsSettings 
-                # Transition stage to Next Stage
+                # Retrieve IndexStatus
+                $es_PreIndexStatus = Get-EsIndexStatus
+                # Retrieve a copy of the current Elasticsearch Settings
+                $es_PreClusterSettings = Get-EsSettings 
             } else {
                 write-host "Warning | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
                 $IndexStatus = Get-EsIndexStatus
@@ -190,7 +196,7 @@ ForEach ($Stage in $Stages) {
             }
         } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
         
-        write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: End Stage | Stage: $($Stage.Name)"
+        write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Rolling Restart | End Stage | Stage: $($Stage.Name)"
     }
 }
 
