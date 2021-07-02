@@ -2,6 +2,7 @@ using namespace System
 using namespace System.IO
 using namespace System.Collections.Generic
 
+
 # Maximum number of days back from the StartDate to inspect for indexes to migrate
 $MaxDays = 2
 $DateRange_Start = Get-Date "03/14/2021"
@@ -22,6 +23,23 @@ $ColumboServer = $null
 # Amount of time to pause inbetween Stage inner Do {} While/Until loops.
 $IterationDelay = 5
 
+# Establish Cluster Nodes based on LogRhythm's Hosts file
+$es_ClusterHosts = $(Get-LrClusterHosts -EsMaster)
+
+$RestartOrder = [List[object]]::new()
+# Warm Nodes
+ForEach ($Node in $($es_ClusterHosts | Where-Object -Property type -like 'warm')) {
+    $RestartOrder.Add($Node)
+}
+# Hot Nodes that are not Master
+ForEach ($Node in $($es_ClusterHosts | Where-Object -Property type -like 'hot' | Where-Object -Property master -eq $false)) {
+    $RestartOrder.Add($Node)
+}
+# Master Hot Node
+ForEach ($Node in $($es_ClusterHosts | Where-Object -Property type -like 'hot' | Where-Object -Property master -eq $true)) {
+    $RestartOrder.Add($Node)
+}
+
 # Master Last
 # -- Master Data Node
 
@@ -29,6 +47,7 @@ $Stages = [List[object]]::new()
 $Stages.add([PSCustomObject]@{
     Name = "Pre"
     ClusterStatus = "Green"
+    ClusterHosts = $(Get-LrClusterHosts)
     SSH = "Verify"
     Routing = "All"
     Flush = $false
@@ -40,7 +59,7 @@ $Stages.add([PSCustomObject]@{
     SSH = $null
     Routing = "Primaries"  
     Flush = $true
-    ManualCheck = $false
+    ManualCheck = $true
 })
 $Stages.add([PSCustomObject]@{
     Name = "Running"
@@ -48,7 +67,7 @@ $Stages.add([PSCustomObject]@{
     SSH = $null
     Routing = "Primaries"
     Flush = $false
-    ManualCheck = $false
+    ManualCheck = $true
 })
 $Stages.add([PSCustomObject]@{
     Name = "Completed"
@@ -56,7 +75,7 @@ $Stages.add([PSCustomObject]@{
     SSH = $null
     Routing = "All"
     Flush = $false
-    ManualCheck = $false
+    ManualCheck = $true
 })
 $Stages.add([PSCustomObject]@{
     Name = "End"
@@ -64,7 +83,7 @@ $Stages.add([PSCustomObject]@{
     SSH = "Verify"
     Routing = "All"
     Flush = $false
-    ManualCheck = $false
+    ManualCheck = $true
 })
 
 # Status to support aborting at the transition point from the exit of one process tage prior to beginning the next stage
@@ -78,13 +97,12 @@ ForEach ($Stage in $Stages) {
     # Retrieve Cluster Status at the start of each new Stage
     $es_ClusterHealth = Get-EsClusterHealth
     $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
-
+    $lr_ConsulLocks = Get-LrConsulLocks
     # Check if the AbortStatus has been set to True.
     if ($AbortStatus -eq $true) {
         write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Abort Status | Abort Status set to $($AbortStatus).  Aborting Rolling Restart Automation."
         break
     }
-
     write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus  | Rolling Restart | Begin Stage | Stage: $($Stage.Name)"
     
     # Status to support validating transition to the next stage
@@ -102,46 +120,49 @@ ForEach ($Stage in $Stages) {
             # If the basic settings are not set to the pre-defined requirement, update the setting and monitor the environment for recovery.
             # If the recovery monitoring does not progress the process will ultimately abort, indicating the cause for the abort (total max retries or max retries without progress)
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Begin Stage | Target: $($Stage.ClusterStatus)"
-            if ($es_ClusterStatus -like "green") {
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
-                # Cluster is Green, record Node details (ip, heap, ram, cpu, load, role, master, name)
-                $es_Nodes = Get-EsNodes
-                # Cluster is Green, record Cluster Node Count
-                $es_ClusterNodesMax = $es_ClusterStatus.number_of_nodes
-                # Cluster is Green, record the current Master node
-                $es_Master = Get-EsMaster
-                # Retrieve IndexStatus
-                $es_PreIndexStatus = Get-EsIndexStatus
-                # Retrieve a copy of the current Elasticsearch Settings
-                $es_PreClusterSettings = Get-EsSettings 
-            } else {
-                write-host "Warning | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
-                $IndexStatus = Get-EsIndexStatus
-                $IndexSettings = Get-EsSettings 
-                
-                # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
-                # This check inspects the current transient/temporary setting applied to the DX cluster
-                if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
-                    $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
-                    if ($tmp_VerifyAck.acknowledged) {
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
-                    } else {
-                        write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
-                    }
-                }
+            
+            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
+            # Cluster is Green, record Node details (ip, heap, ram, cpu, load, role, master, name)
+            $es_Nodes = Get-EsNodes
+            # Cluster is Green, record Cluster Node Count
+            $es_ClusterNodesMax = $es_ClusterStatus.number_of_nodes
+            # Cluster is Green, record the current Master node
+            $es_Master = Get-EsMaster
+            # Retrieve IndexStatus
+            $es_PreIndexStatus = Get-EsIndexStatus
+            # Retrieve a copy of the current Elasticsearch Settings
+            $es_PreClusterSettings = Get-EsSettings 
 
-                # This check inspects the current persistent setting applied to the DX cluster for routing.
-                if ($IndexSettings.persistent.cluster.routing.allocation.enable -and $IndexSettings.persistent.cluster.routing.allocation.enable -notlike $Stage.Routing) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.persistent.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
-                    $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
-                    if ($tmp_VerifyAck.acknowledged) {
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
-                    } else {
-                        write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
-                    }
+            write-host "Warning | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
+            $IndexStatus = Get-EsIndexStatus
+            $IndexSettings = Get-EsSettings 
+            
+            # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
+            # This check inspects the current transient/temporary setting applied to the DX cluster
+            if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
+                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
+                if ($tmp_VerifyAck.acknowledged) {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
+                } else {
+                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
                 }
-        
+            }
+
+            # This check inspects the current persistent setting applied to the DX cluster for routing.
+            if ($IndexSettings.persistent.cluster.routing.allocation.enable -and $IndexSettings.persistent.cluster.routing.allocation.enable -notlike $Stage.Routing) {
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.persistent.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
+                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
+                if ($tmp_VerifyAck.acknowledged) {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
+                } else {
+                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
+                }
+            }
+    
+
+            # Monitor Cluster Recovery
+            if ($es_ClusterStatus -notlike "green") {
                 # Instantiate variables associated with monitoring cluster recovery.
                 $MaxInitConsecZero = 10
                 $MaxNodeConsecNonMax = 50
@@ -151,7 +172,6 @@ ForEach ($Stage in $Stages) {
                 $PreviousUnAssigned = 0
                 $CurrentUnassigned = 0
                 $InitHistory = [List[int]]::new()
-        
                 Do {
                     start-sleep $RetrySleep
                     $es_ClusterHealth = Get-EsClusterHealth
@@ -188,6 +208,72 @@ ForEach ($Stage in $Stages) {
                     Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Aborting rolling restart process due to manual halt."
                     $AbortStatus = $true
                 }
+            } else {
+                $TransitionStage -eq $true
+            }
+
+
+            # Apply Stay Loop Delay if we're not aborting and not transitioning to the next phase
+            if ($TransitionStage -eq $false -and $AbortStatus -eq $false) {
+                start-sleep $IterationDelay
+            }
+        } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)        
+    }
+
+    # Begin Section - Start
+    if ($Stage.name -Like "Start") {
+        Do {
+            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
+            $IndexStatus = Get-EsIndexStatus
+            $IndexSettings = Get-EsSettings 
+            
+            # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
+            # This check inspects the current transient/temporary setting applied to the DX cluster
+            if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
+                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
+                if ($tmp_VerifyAck.acknowledged) {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
+                } else {
+                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
+                }
+            }
+
+            # This check inspects the current persistent setting applied to the DX cluster for routing.
+            if ($IndexSettings.persistent.cluster.routing.allocation.enable -and $IndexSettings.persistent.cluster.routing.allocation.enable -notlike $Stage.Routing) {
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.persistent.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
+                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
+                if ($tmp_VerifyAck.acknowledged) {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
+                } else {
+                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
+                }
+            }
+
+            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Flush | Submitting cluster flush to Elasticsearch Master Node"
+            $FlushResults = Invoke-EsFlushSync
+            $FlushSuccessSum = $FlushResults | Measure-Object -Property 'successful' -Sum | Select-Object -ExpandProperty 'Sum'
+            $FlushFailSum = $FlushResults | Measure-Object -Property 'failed' -Sum | Select-Object -ExpandProperty 'Sum'
+            $FlushTotal = $FlushResults | Measure-Object -Property 'total' -Sum | Select-Object -ExpandProperty 'Sum'
+            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Flush | Total Shards: $FlushTotal  Sucessful: $FlushSuccessSum  Failed: $FlushFailSum"
+
+            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Check Required: $($Stage.ManualCheck)"
+            if ($Stage.ManualCheck -eq $true) {
+                $Title    = "Elasticsearch Rolling Restart"
+                $Question = 'Are you sure you want to proceed?'
+                $Choices = New-Object Collections.ObjectModel.Collection[Management.Automation.Host.ChoiceDescription]
+                $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&Yes'))
+                $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&No'))
+                $UserDecision = $Host.UI.PromptForChoice($Title, $Question, $Choices, 1)
+                if ($UserDecision -eq 0) {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Manual authorization granted.  Proceeding to next stage."
+                    $TransitionStage = $true
+                } else {
+                    Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Aborting rolling restart process due to manual halt."
+                    $AbortStatus = $true
+                }
+            } else {
+                $TransitionStage -eq $true
             }
 
             # Apply Stay Loop Delay if we're not aborting and not transitioning to the next phase
@@ -195,9 +281,38 @@ ForEach ($Stage in $Stages) {
                 start-sleep $IterationDelay
             }
         } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
-        
-        write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Rolling Restart | End Stage | Stage: $($Stage.Name)"
     }
+
+    # Begin Section - Start
+    if ($Stage.name -Like "Running") {
+        ForEach ($Node in $RestartOrder) {
+            Do {
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Restart Node | Node: $($Node.hostname) | Note here"
+
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | Check Required: $($Stage.ManualCheck)"
+                if ($Stage.ManualCheck -eq $true) {
+                    $Title    = "Node Complete"
+                    $Question = 'Do you want to proceed onto the next node?'
+                    $Choices = New-Object Collections.ObjectModel.Collection[Management.Automation.Host.ChoiceDescription]
+                    $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&Yes'))
+                    $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&No'))
+                    $UserDecision = $Host.UI.PromptForChoice($Title, $Question, $Choices, 1)
+                    if ($UserDecision -eq 0) {
+                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification |  Node: $($Node.hostname) | Manual authorization granted.  Proceeding to next stage."
+                        $TransitionStage = $true
+                    } else {
+                        Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification |  Node: $($Node.hostname) | Aborting rolling restart process due to manual halt."
+                        $AbortStatus = $true
+                    }
+                } else {
+                    $TransitionStage -eq $true
+                }
+            } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
+        }
+    }
+    
+            # End Section - Start
+    write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Rolling Restart | End Stage | Stage: $($Stage.Name)"
 }
 
 
