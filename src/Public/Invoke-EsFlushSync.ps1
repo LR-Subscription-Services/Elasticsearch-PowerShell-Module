@@ -1,3 +1,6 @@
+using namespace System
+using namespace System.IO
+using namespace System.Collections.Generic
 Function Invoke-EsFlushSync {
     [CmdletBinding()]
     Param()
@@ -14,6 +17,8 @@ Function Invoke-EsFlushSync {
         }
 
         $Method = "Post"
+
+        $CuratedResults = [List[object]]::new()
     }
 
     Process {
@@ -28,7 +33,16 @@ Function Invoke-EsFlushSync {
                 return $_
             }
         }
-        
-        return $Response
+
+        $Response.PSObject.Properties | ForEach-Object {
+            $CuratedResults.add([PSCustomObject]@{
+                name = $_.Name
+                total = $_.Value.total
+                successful = $_.Value.successful
+                failed = $_.Value.failed
+            })
+            
+        }
+        return $CuratedResults
     }
 }
