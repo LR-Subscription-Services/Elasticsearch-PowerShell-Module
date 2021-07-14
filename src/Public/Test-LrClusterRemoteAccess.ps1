@@ -30,10 +30,27 @@ Function Test-LrClusterRemoteAccess {
         ForEach ($hostname in $hostnames) {
             if ($CurrentPSSessions.ComputerName -notcontains $hostname) {
                 try {
-                    $PSSession = New-PSSession -HostName $hostname -UserName $UserName -KeyFilePath $KeyFilePath
+                    $PSSession = New-PSSession -HostName $hostname -UserName $UserName -KeyFilePath $KeyFilePath -ErrorAction Stop
                     $Results.add($PSSession)
                 } Catch {
-                    $Results.add($PSSession)
+                    $ConnectionResults = $(Test-Connection -IPv4 $HostName -Quiet)
+                    if ($ConnectionResults) {
+                        $Availability = "Available"
+                    } else {
+                        $Availability = "None"
+                    }
+                    $Result = [PSCustomObject]@{
+                        Id = -1
+                        Name = "Error"
+                        Transport = "SSH"
+                        ComputerName = $hostname
+                        ComputerType = "RemoteMachine"
+                        State = "Error"
+                        ConfigurationName = "DefaultShell"
+                        Availability = $Availability
+                        Error = $_
+                    }
+                    $Results.add($Result)
                 }
             } else {
                 $Results.Add($($CurrentPSSessions | Where-Object -Property 'ComputerName' -eq $hostname))
