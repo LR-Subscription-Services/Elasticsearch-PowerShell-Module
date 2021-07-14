@@ -26,6 +26,7 @@ $IterationDelay = 5
 # Establish Cluster Nodes based on LogRhythm's Hosts file
 $es_ClusterHosts = $(Get-LrClusterHosts -EsMaster)
 
+
 $RestartOrder = [List[object]]::new()
 # Warm Nodes
 ForEach ($Node in $($es_ClusterHosts | Where-Object -Property type -like 'warm')) {
@@ -111,9 +112,8 @@ ForEach ($Stage in $Stages) {
         Do {
             # Begin with validating remote access into the DX cluster's nodes
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Begin Stage | Target: $($Stage.SSH)"
-            # 
-            # Add super cool code here
-            #
+            $rs_SessionStatus = Test-LrClusterRemoteAccess -HostNames $es_ClusterHosts.ipaddr
+            
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | End Stage | Target: $($Stage.SSH)"
 
             # Next transition into validating ElasticSearch Cluster Status.  If the Status is not Healthy, validate basic settings that would prevent a Healthy status.
