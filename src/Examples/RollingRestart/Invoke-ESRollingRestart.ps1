@@ -113,7 +113,26 @@ ForEach ($Stage in $Stages) {
             # Begin with validating remote access into the DX cluster's nodes
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Begin Stage | Target: $($Stage.SSH)"
             $rs_SessionStatus = Test-LrClusterRemoteAccess -HostNames $es_ClusterHosts.ipaddr
-            
+            ForEach ($rs_SessionStat in $rs_SessionStatus) {
+                if ($rs_SessionStat.Id -eq -1) {
+                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Session State: $($rs_SessionStat.State) | Target: $($rs_SessionStat.ComputerName) | $($rs_SessionStat.Error)"
+                    $RetryMax = 20
+                    $RetrySleep = 5
+                    $CurrentRetry = 0
+                    Do {
+                        start-sleep $RetrySleep
+                        $rs_SessionStat = Test-LrClusterRemoteAccess -HostNames $rs_SessionStat.ComputerName
+                        if ($rs_SessionStat.Id -eq -1) {
+                            $CurrentRetry += 1
+                            write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Session State: $($rs_SessionStat.State) | Target: $($rs_SessionStat.ComputerName) | $($rs_SessionStat.Error)"
+                        } else {
+                            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Session State: $($rs_SessionStat.State) | Target: $($rs_SessionStat.ComputerName) | Session ID: $($rs_SessionStat.Id)"
+                        }
+                    } until (($CurrentRetry -ge $RetryMax) -or ($rs_SessionStat.State -like "Opened"))
+                } else {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Session State: $($rs_SessionStat.State) | Target: $($rs_SessionStat.ComputerName) | Session ID: $($rs_SessionStat.Id)"
+                }
+            }
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | End Stage | Target: $($Stage.SSH)"
 
             # Next transition into validating ElasticSearch Cluster Status.  If the Status is not Healthy, validate basic settings that would prevent a Healthy status.
@@ -174,19 +193,24 @@ ForEach ($Stage in $Stages) {
                 $InitHistory = [List[int]]::new()
                 Do {
                     start-sleep $RetrySleep
+                    $PreviousUnAssigned = $($es_ClusterHealth.unassigned_shards)
                     $es_ClusterHealth = Get-EsClusterHealth
                     $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
 
                     if ($($es_ClusterStatus.number_of_nodes) -ne $ClusterNodesMax) {
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Nodes | Count: $($es_ClusterHealth.number_of_nodes) Target: $($ClusterNodesMax)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
-                        $RetryMax += 1
+                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Unassigned Shards | Cluster Nodes | Count: $($es_ClusterHealth.number_of_nodes) Target: $($ClusterNodesMax)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
+                        $RetryMax += 5
                     } else {
                         $CurrentRetry += 1
                         $InitHistory.Add($($es_ClusterHealth.initializing_shards))
         
                         $CurrentUnassigned = $($es_ClusterHealth.unassigned_shards)
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Unassigned Shards | Unassigned: $($es_ClusterHealth.unassigned_shards)  Initializing: $($es_ClusterHealth.initializing_shards)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
-        
+                        if ($CurrentUnassigned -ne $PreviousUnAssigned) {
+                            $RetryMax += 2
+                            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Unassigned Shards | Recovery Progression | Unassigned: $($es_ClusterHealth.unassigned_shards)  Initializing: $($es_ClusterHealth.initializing_shards)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
+                        } else {
+                            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Unassigned Shards | Recovery Stalled | Unassigned: $($es_ClusterHealth.unassigned_shards)  Initializing: $($es_ClusterHealth.initializing_shards)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
+                        }
                         $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average)
                     }
                 } until (($CurrentRetry -ge $RetryMax) -or ($es_ClusterStatus -like "green") -or (($InitHistoryStats.count -eq $MaxInitConsecZero) -and ($InitHistoryStats.sum -eq 0)))
@@ -288,7 +312,9 @@ ForEach ($Stage in $Stages) {
         ForEach ($Node in $RestartOrder) {
             Do {
                 write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Restart Node | Node: $($Node.hostname) | Note here"
-
+                # Add in restart to system here, using $($Node.ipaddr)
+                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                Invoke-Command -Session $NodeSession -ScriptBlock {get-host}
                 write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | Check Required: $($Stage.ManualCheck)"
                 if ($Stage.ManualCheck -eq $true) {
                     $Title    = "Node Complete"
