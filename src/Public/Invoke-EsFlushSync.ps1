@@ -17,11 +17,10 @@ Function Invoke-EsFlushSync {
         }
 
         $Method = "Post"
-
-        $CuratedResults = [List[object]]::new()
     }
 
     Process {
+        $CuratedResults = [List[object]]::new()
         $RequestUrl = $BaseUrl + "/_flush/synced?format=json"
         Try {
             $Response = Invoke-RestMethod $RequestUrl -Method $Method -Headers $Headers
@@ -35,12 +34,16 @@ Function Invoke-EsFlushSync {
         }
 
         $Response.PSObject.Properties | ForEach-Object {
-            $CuratedResults.add([PSCustomObject]@{
+            $Entry = [PSCustomObject]@{
                 name = $_.Name
                 total = $_.Value.total
                 successful = $_.Value.successful
                 failed = $_.Value.failed
-            })
+            }
+            if ($_.failures) {
+                $Entry | Add-Member -MemberType NoteProperty -Name "failures" -Value $_.failures -Force
+            }
+            $CuratedResults.add($Entry)
             
         }
         return $CuratedResults
