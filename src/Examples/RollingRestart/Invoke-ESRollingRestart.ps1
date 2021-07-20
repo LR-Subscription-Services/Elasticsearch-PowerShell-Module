@@ -41,6 +41,9 @@ ForEach ($Node in $($es_ClusterHosts | Where-Object -Property type -like 'hot' |
     $RestartOrder.Add($Node)
 }
 
+# List of index that are closed as part of auto rolling restart to be re-opened in the Completed stage
+$ClosedHotIndexes = [List[object]]::new()
+
 # Master Last
 # -- Master Data Node
 
@@ -50,6 +53,7 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     ClusterHosts = $(Get-LrClusterHosts)
     SSH = "Verify"
+    IndexSize = -1
     Routing = "All"
     Flush = $false
     ManualCheck = $true
@@ -58,7 +62,8 @@ $Stages.add([PSCustomObject]@{
     Name = "Start"
     ClusterStatus = "Green"
     SSH = $null
-    Routing = "Primaries"  
+    IndexSize = 3
+    Routing = "Primaries"
     Flush = $true
     ManualCheck = $true
 })
@@ -66,6 +71,7 @@ $Stages.add([PSCustomObject]@{
     Name = "Running"
     ClusterStatus = "Yellow"
     SSH = $null
+    IndexSize = 3
     Routing = "Primaries"
     Flush = $false
     ManualCheck = $true
@@ -74,6 +80,7 @@ $Stages.add([PSCustomObject]@{
     Name = "Completed"
     ClusterStatus = "Green"
     SSH = $null
+    IndexSize = -1
     Routing = "All"
     Flush = $false
     ManualCheck = $true
@@ -82,6 +89,7 @@ $Stages.add([PSCustomObject]@{
     Name = "End"
     ClusterStatus = "Green"
     SSH = "Verify"
+    IndexSize = -1
     Routing = "All"
     Flush = $false
     ManualCheck = $true
@@ -219,12 +227,7 @@ ForEach ($Stage in $Stages) {
 
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Check Required: $($Stage.ManualCheck)"
             if ($Stage.ManualCheck -eq $true) {
-                $Title    = "Elasticsearch Rolling Restart"
-                $Question = 'Are you sure you want to proceed?'
-                $Choices = New-Object Collections.ObjectModel.Collection[Management.Automation.Host.ChoiceDescription]
-                $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&Yes'))
-                $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&No'))
-                $UserDecision = $Host.UI.PromptForChoice($Title, $Question, $Choices, 1)
+                $UserDecision = Invoke-SelectionPrompt -Title "Elasticsearch Rolling Restart" -Question "Are you sure you want to proceed?"
                 if ($UserDecision -eq 0) {
                     write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Manual authorization granted.  Proceeding to next stage."
                     $TransitionStage = $true
@@ -250,7 +253,8 @@ ForEach ($Stage in $Stages) {
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
             $IndexStatus = Get-EsIndexStatus
             $IndexSettings = Get-EsSettings 
-            
+            $Indexes = Get-EsIndex
+
             # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
             # This check inspects the current transient/temporary setting applied to the DX cluster
             if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
@@ -274,21 +278,41 @@ ForEach ($Stage in $Stages) {
                 }
             }
 
+            # Optional - Close down number of cluster indexes to reduce node recovery time
+            if ($Stage.IndexSize -gt 0) {
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Close Index | Begin closing indicies to reduce recovery time requirements"
+
+                $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
+                $TargetClosedIndexes = $HotIndexes | Select-Object -First $($HotIndexes.count - $Stage.IndexSize)
+                $HotIndexOpen = $HotIndexes.count
+                $HotIndexClosed = $TargetClosedIndexes.count
+                ForEach ($TargetIndex in $TargetClosedIndexes) {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Close Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize) | Closing Index: $($TargetIndex.index)"
+                    $CloseStatus = Close-EsIndex -Index $TargetIndex.Index
+                    if ($CloseStatus.acknowledged) {
+                        $HotIndexOpen -= 1
+                        $HotIndexClosed += 1
+                        $ClosedHotIndexes.add($TargetIndex)
+                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Close Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize) | Close Status: Completed"
+                    } else {
+                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Close Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize) | Close Status: Incomplete"
+                        write-host $CloseStatus
+                    }
+                    
+                }
+            }
+
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Flush | Submitting cluster flush to Elasticsearch Master Node"
             $FlushResults = Invoke-EsFlushSync
+            <#
             $FlushSuccessSum = $FlushResults | Measure-Object -Property 'successful' -Sum | Select-Object -ExpandProperty 'Sum'
             $FlushFailSum = $FlushResults | Measure-Object -Property 'failed' -Sum | Select-Object -ExpandProperty 'Sum'
             $FlushTotal = $FlushResults | Measure-Object -Property 'total' -Sum | Select-Object -ExpandProperty 'Sum'
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Flush | Total Shards: $FlushTotal  Sucessful: $FlushSuccessSum  Failed: $FlushFailSum"
-
+            #>
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Check Required: $($Stage.ManualCheck)"
             if ($Stage.ManualCheck -eq $true) {
-                $Title    = "Elasticsearch Rolling Restart"
-                $Question = 'Are you sure you want to proceed?'
-                $Choices = New-Object Collections.ObjectModel.Collection[Management.Automation.Host.ChoiceDescription]
-                $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&Yes'))
-                $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&No'))
-                $UserDecision = $Host.UI.PromptForChoice($Title, $Question, $Choices, 1)
+                $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
                 if ($UserDecision -eq 0) {
                     write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Manual authorization granted.  Proceeding to next stage."
                     $TransitionStage = $true
@@ -314,15 +338,12 @@ ForEach ($Stage in $Stages) {
                 write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Restart Node | Node: $($Node.hostname) | Note here"
                 # Add in restart to system here, using $($Node.ipaddr)
                 $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-                Invoke-Command -Session $NodeSession -ScriptBlock {get-host}
+                $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {get-host}
+                Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | PSComputerName: $($HostResult.PSComputerName)   RunSpace: $($HostResult.Name)"
+                
                 write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | Check Required: $($Stage.ManualCheck)"
                 if ($Stage.ManualCheck -eq $true) {
-                    $Title    = "Node Complete"
-                    $Question = 'Do you want to proceed onto the next node?'
-                    $Choices = New-Object Collections.ObjectModel.Collection[Management.Automation.Host.ChoiceDescription]
-                    $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&Yes'))
-                    $Choices.Add((New-Object Management.Automation.Host.ChoiceDescription -ArgumentList '&No'))
-                    $UserDecision = $Host.UI.PromptForChoice($Title, $Question, $Choices, 1)
+                    $UserDecision = Invoke-SelectionPrompt -Title "Node Complete" -Question "Do you want to proceed onto the next node?"
                     if ($UserDecision -eq 0) {
                         write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification |  Node: $($Node.hostname) | Manual authorization granted.  Proceeding to next stage."
                         $TransitionStage = $true
@@ -336,147 +357,62 @@ ForEach ($Stage in $Stages) {
             } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
         }
     }
+
+    if ($Stage.name -like "Completed") {
+        Do {
+            $IndexStatus = Get-EsIndexStatus
+            $IndexSettings = Get-EsSettings
+
+            # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
+            # This check inspects the current transient/temporary setting applied to the DX cluster
+            if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
+                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
+                if ($tmp_VerifyAck.acknowledged) {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
+                } else {
+                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
+                }
+            }
+
+
+            $Indexes = Get-EsIndex
+            if ($ClosedHotIndexes) {
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Begin opening indicies to restore production environment"
+                
+                $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
+                $HotIndexOpen = $HotIndexes.count
+                $HotIndexClosed = $ClosedHotIndexes.count
+                ForEach ($TargetIndex in $ClosedHotIndexes) {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize) | Opening Index: $($TargetIndex.Index)"
+                    $OpenStatus = Open-EsIndex -Index $TargetIndex.Index
+                    if ($OpenStatus.acknowledged) {
+                        $HotIndexOpen += 1
+                        $HotIndexClosed -= 1
+                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize) | Open Status: Completed"
+                    } else {
+                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize) | Open Status: Incomplete"
+                        write-host $OpenStatus
+                    }
+                }
+            }
+
+            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Check Required: $($Stage.ManualCheck)"
+            if ($Stage.ManualCheck -eq $true) {
+                $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
+                if ($UserDecision -eq 0) {
+                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Manual authorization granted.  Proceeding to next stage."
+                    $TransitionStage = $true
+                } else {
+                    Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Aborting rolling restart process due to manual halt."
+                    $AbortStatus = $true
+                }
+            } else {
+                $TransitionStage -eq $true
+            }
+        } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
+    }
     
-            # End Section - Start
+    # End Section - Start
     write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Rolling Restart | End Stage | Stage: $($Stage.Name)"
 }
-
-
-
-
-if ($es_ClusterStatus.status -like "green") {
-    write-host "Status is green, we're green to begin!"
-    $es_Nodes = Get-EsNodes
-    $es_ClusterNodesMax = $es_ClusterStatus.number_of_nodes
-    $es_Master = Get-EsMaster
-} else {
-    write-host "Status is not green, we're not in a position to perform a rolling restart."
-    $MaxInitConsecZero = 10
-    $MaxNodeConsecNonMax = 50
-    $RetryMax = 20
-    $RetrySleep = 5
-    $CurrentRetry = 0
-    $PreviousUnAssigned = 0
-    $CurrentUnassigned = 0
-    $InitHistory = [List[int]]::new()
-    if ($($es_ClusterStatus.number_of_nodes) -ne $ClusterNodesMax) {
-        write-host "Cluster Status: $es_ClusterStatus  Current Node Count: $($es_ClusterStatus.number_of_nodes)  Target Node Count: $($ClusterNodesMax)  Attempt: $CurrentRetry  Attempts Remaining: $($RetryMax - $CurrentRetry)  Sleeping for: $LoopSleepTimer_Medium"
-        $RetryMax += 1
-    } else {
-        $DesiredRoutingState = 'all'
-
-        $ClusterSettings = Get-EsSettings
-        # Check transient first
-        if ($ClusterSettings) {
-            if ($ClusterSettings.transient.cluster.routing.allocation) {
-                write-host "Cluster Routing Allocation - Transient: $($ClusterSettings.transient.cluster.routing.allocation.enable)"
-            } else {
-                Write-Host "Cluster Routing Allocation - Persistent: $($ClusterSettings.persistent.cluster.routing.allocation.enable)"
-            }
-        } else {
-            write-host "Unable to retrieve Elasticsearch Cluster Settings."
-            Exit 1
-        }
-
-        $CurrentUnassigned = $($es_Clusterstatus.unassigned_shards)
-        if ($CurrentUnassigned -ne $($ClusterStatusHistory | Select-Object -ExpandProperty unassigned_shards -Last 1)) {
-            $RetryMax += 5
-        }
-        write-host "Cluster Status: $es_ClusterStatus  Unassigned Shards: $($es_Clusterstatus.unassigned_shards)  Initializing Shards: $($es_Clusterstatus.initializing_shards)  Attempt: $CurrentRetry  Attempts Remaining: $($RetryMax - $CurrentRetry)  Sleeping for: $LoopSleepTimer_Medium"
-    }
-}
-
-
-
-$PriShards_Yellow_Sum = Get-EsIndex | Where-Object -Property status -ne 'close' | Where-Object -Property health -like 'yellow' | Select-Object -ExpandProperty 'pri' | Measure-Object -Sum | Select-Object -ExpandProperty 'Sum'
-$PriShards_Unassigned = Get-EsShards | Where-Object -Property 'prirep' -Like 'p' | Where-Object -Property 'state' -like 'unassigned'
-$RepShards_Yellow_Sum = Get-EsIndex | Where-Object -Property status -ne 'close' | Where-Object -Property health -like 'yellow' | Select-Object -ExpandProperty 'rep' | Measure-Object -Sum | Select-Object -ExpandProperty 'Sum'
-$RepShards_Unassigned = Get-EsShards | Where-Object -Property 'prirep' -Like 'r' | Where-Object -Property 'state' -like 'unassigned'
-
-$Indexes_Bad = Get-EsIndex | Where-Object -Property status -ne "close" | Where-Object {$_.health -like 'yellow' -or $_.health -like 'red'} | Select-Object -ExpandProperty 'index'
-$Indexes_Good = Get-EsIndex | Where-Object -Property status -ne "close" | Where-Object {$_.health -like 'green'} | Select-Object -ExpandProperty 'index'
-$Shards_Unassigned = [List[object]]::new()
-ForEach ($BadIndex in $Indexes_Bad) {
-    $PriShards_Unassigned = [List[object]]::new()
-    $RepShards_Unassigned = [List[object]]::new()
-    $ES_ShardStatus = Get-EsShards -Index $BadIndex -AdvanceHeaders | Where-Object -Property 'state' -like 'unassigned'
-    ForEach ($ES_Shard in $ES_ShardStatus) {
-        if ($ES_Shard.prirep -like "r") {
-            if ($RepShards_Unassigned -notcontains $ES_Shard) {
-                $RepShards_Unassigned.add($ES_Shard)
-            }
-        }
-        if ($ES_Shard.prirep -like "p") {
-            if ($RepShards_Unassigned -notcontains $ES_Shard) {
-                $PriShards_Unassigned.add($ES_Shard)
-            }
-        }
-    }
-    $BadIndexInfo = [PSCustomObject]@{
-        Index = $BadIndex
-        Sum_BadPriShards = $PriShards_Unassigned.count 
-        Sum_BadRepShards = $RepShards_Unassigned.count
-        BadPriShards = $PriShards_Unassigned
-        BadRepShards = $RepShards_Unassigned
-    }
-    if ($Shards_Unassigned -notcontains $BadIndexInfo) {
-        $Shards_Unassigned.add($BadIndexInfo)
-    }
-    if ($BadIndexInfo.Sum_BadPriShards -gt 0) {
-        Write-Host "Index: $($BadIndexInfo.Index) | Status: Unassigned Primary Shards | Count: $($BadIndexInfo.Sum_BadPriShards)"
-        ForEach ($Reason in $($BadIndexInfo.BadPriShards | Where-Object -Property 'index' -like $BadIndexInfo.Index |Select-Object -Unique)) {
-            Write-Host "Index: $($BadIndexInfo.Index) | Reason: $($Reason.ur) | Note: $($Reason.un)"
-        }
-    }
-    if ($BadIndexInfo.Sum_BadRepShards -gt 0) {
-        Write-Host "Unassigned Replica Shards - Index: $($BadIndexInfo.Index) Count: $($BadIndexInfo.Sum_BadRepShards)"
-        ForEach ($Reason in $($BadIndexInfo.BadRepShards | Where-Object -Property 'index' -like $BadIndexInfo.Index |Select-Object -Unique)) {
-            Write-Host "Index: $($BadIndexInfo.Index) | Reason: $($Reason.ur) | Note: $($Reason.un)"
-        }
-    }
-}
-
-
-# Disable Shard Allocation
-Update-EsIndexRouting -Enable "primaries"
-# Validate IndexRouting has been updated to set value
-Do {
-    Start-Sleep 15
-    $ESSettings = Get-EsSettings
-} Until ($ESSettings.transient.cluster.routing.allocation.enable -eq "primaries")
-
-
-$FlushResults = Invoke-EsFlushSync
-
-
-systemctl stop elasticsearch.service
-# Start - Simulated Reboot
-start-sleep 90
-systemctl start elasticsearch.service
-# END - Simulated Reboot
-DO {
-    $NodeStatus = get-esnodes
-    Start-Sleep 30
-} While ($TCond = $Tcond2)
-Update-EsIndexRouting -Enable "null"
-$ShardMigrationStatus = "InProgress"
-Do {
-    $EsShardRecoveryResults = Get-EsRecovery
-    if ($EsShardRecoveryResults) {
-        $RecoveryDetails = $EsShardRecoveryResults | Where-Object -Property 'index' -like $ElasticDateString | Where-Object -property 'type' -notlike 'empty_store' | Select-Object -Property index,type,shard,time,source_host,source_node,target_host,target_node,files_percent,bytes_percent,translog_ops_percent | Sort-Object -Property files_percent,bytes_percent,translog_ops_percent 
-        $FilesPercent = $RecoveryDetails | Select-Object -ExpandProperty 'files_percent' | ForEach-Object {$_.replace("%","")} | Measure-Object -Average | Select-Object -ExpandProperty Average
-        $TranslogPercent = $RecoveryDetails | Select-Object -ExpandProperty 'translog_ops_percent' | ForEach-Object {$_.replace("%","")} | Measure-Object -Average | Select-Object -ExpandProperty Average
-        $BytesPercent = $RecoveryDetails | Select-Object -ExpandProperty bytes_percent | ForEach-Object {$_.replace("%","")} | Measure-Object -Average | Select-Object -ExpandProperty Average
-        if (($FilesPercent -eq '100') -and ($TranslogPercent -eq '100') -and ($BytesPercent -eq '100')) {
-            $ShardMigrationStatus = "Complete"
-            write-Host "Migration Status: Complete"
-        } else {
-            $ShardMigrationStatus = "Index: $ElasticDateString  Status: InProgress  Files_Percent: $FilesPercent   Translog_Percent: $TranslogPercent   Bytes_Percent: $BytesPercent"
-        }
-    } else {
-        return "Issue with recovering data from Get-EsRecovery cmdlet."
-    }
-
-    Write-Host "Task: Shard Migration  $ShardMigrationStatus"
-    Start-Sleep 5
-} Until ($ShardMigrationStatus -eq "Complete")
