@@ -36,13 +36,22 @@ Function Invoke-MonitorEsRecovery {
 
     Process {
         Do {
+            # Add sleep to this process for every iteration after the first.
+            if ($RetryCounter -gt 0) {
+                start-sleep $RetrySleep
+            }
+            # Increment the loop counter
+            $RetryCounter += 1
+
+            # Retrieve cluster health
             $LastUnassigned = $($ClusterHealth.unassigned_shards)
             $ClusterHealth = Get-EsClusterHealth
             $es_ClusterStatus = $($TC.ToTitleCase($($ClusterHealth.status)))
 
-            $RetryCounter += 1
+            # Store initialization history
             $InitHistory.Add($($ClusterHealth.initializing_shards))
 
+            # Update current Unassigned Shards details
             $CurrentUnassigned = $($ClusterHealth.unassigned_shards)
             if ($CurrentUnassigned -ne $LastUnassigned) {
                 $RetryMax += 2
@@ -50,9 +59,7 @@ Function Invoke-MonitorEsRecovery {
             } else {
                 New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
             }
-            $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average)
-        
-            start-sleep $RetrySleep
+            $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average) 
         } until (($RetryCounter -ge $RetryMax) -or ($es_ClusterStatus -like "green") -or (($InitHistoryStats.count -eq $MaxInitConsecZero) -and ($InitHistoryStats.sum -eq 0)))
     }
 }
