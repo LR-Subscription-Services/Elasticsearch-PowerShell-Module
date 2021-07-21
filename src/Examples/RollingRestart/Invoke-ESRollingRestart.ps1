@@ -62,7 +62,7 @@ $Stages.add([PSCustomObject]@{
     Name = "Start"
     ClusterStatus = "Green"
     SSH = $null
-    IndexSize = 3
+    IndexSize = 20
     Routing = "Primaries"
     Flush = $true
     ManualCheck = $true
@@ -71,7 +71,7 @@ $Stages.add([PSCustomObject]@{
     Name = "Running"
     ClusterStatus = "Yellow"
     SSH = $null
-    IndexSize = 3
+    IndexSize = 20
     Routing = "Primaries"
     Flush = $false
     ManualCheck = $true
@@ -97,6 +97,7 @@ $Stages.add([PSCustomObject]@{
 
 # Status to support aborting at the transition point from the exit of one process tage prior to beginning the next stage
 $AbortStatus = $false
+$DryRun = $true
 
 # Variable to define TextCulture enabling the ability to updating string values ToTiltleCase syntax.
 $TC = (Get-Culture).TextInfo
@@ -109,24 +110,81 @@ ForEach ($Stage in $Stages) {
     $lr_ConsulLocks = Get-LrConsulLocks
     # Check if the AbortStatus has been set to True.
     if ($AbortStatus -eq $true) {
-        New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Abort Status' -logMessage "Abort Status set to $($AbortStatus).  Aborting Rolling Restart Automation."
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Abort Status' -logMessage "Abort Status set to $($AbortStatus).  Aborting Rolling Restart Automation."
         #write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Abort Status | Abort Status set to $($AbortStatus).  Aborting Rolling Restart Automation."
         break
     }
-    New-ProcessLog -logSev s -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Begin Stage' -logMessage "Stage: $($Stage.Name)"
+    New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Rolling Restart' -logMessage "Stage: $($Stage.Name)" -logExField1 "Begin Stage"
 
+    # Seed common cluster data
+    Try {
+        $IndexStatus = Get-EsIndexStatus
+        New-ProcessLog -logSev d -logStage $($Stage.Name) -logStep 'Index Status' -logMessage "Successfully retrieved Index Status in variable IndexStatus"
+    } Catch {
+        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Index Status' -logMessage "Unable to retrieve Index Status in variable IndexStatus"
+    }
+    
+    Try {
+        $IndexSettings = Get-EsSettings
+        New-ProcessLog -logSev d -logStage $($Stage.Name) -logStep 'Index Settings' -logMessage "Successfully retrieved Index Settings in variable IndexSettings"
+    } Catch {
+        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Index Settings' -logMessage "Unable to retrieve Index Settings in variable IndexSettings"
+    }
+    
+    Try {
+        $Indexes = Get-EsIndex
+        New-ProcessLog -logSev d -logStage $($Stage.Name) -logStep 'Index Catalog' -logMessage "Successfully retrieved Indexes in variable Indexes"
+    } Catch {
+        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Index Catalog' -logMessage "Unable to retrieve Indexes in variable Indexes"
+    }
+
+    # Global Processes to complete on each stage
+    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Target: $($Stage.Routing)" -logExField1 'Begin'
+
+    # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
+    # This check inspects the current transient/temporary setting applied to the DX cluster
+    if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
+        $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
+        if ($tmp_VerifyAck.acknowledged) {
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+        } else {
+            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
+        }
+    } elseif ($IndexSettings.persistent.cluster.routing.allocation.enable -and $IndexSettings.persistent.cluster.routing.allocation.enable -notlike $Stage.Routing) {
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Current: $($IndexSettings.persistent.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
+        $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
+        if ($tmp_VerifyAck.acknowledged) {
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+        } else {
+            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
+        }
+    } else {
+        if ($IndexSettings.transient.cluster.routing.allocation.enable) {
+            $CurrentEsRouting = $IndexSettings.transient.cluster.routing.allocation.enable
+        } else {
+            $CurrentEsRouting = $IndexSettings.persistent.cluster.routing.allocation.enable
+        } 
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Current: $CurrentEsRouting Target: $($Stage.Routing)"
+    }
+    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Target: $($Stage.Routing)" -logExField1 'End'
     
     # Status to support validating transition to the next stage
     $TransitionStage = $false
     if ($Stage.name -Like "Pre") {
         Do {
+            # Retrieve Cluster Status at the start of each stage's loop
+            $es_ClusterHealth = Get-EsClusterHealth
+            $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
+            $lr_ConsulLocks = Get-LrConsulLocks
+
             # Begin with validating remote access into the DX cluster's nodes
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "Target: $($Stage.SSH)"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'SSH Verification' -logMessage "Target: $($Stage.SSH)"
 
             $rs_SessionStatus = Test-LrClusterRemoteAccess -HostNames $es_ClusterHosts.ipaddr
             ForEach ($rs_SessionStat in $rs_SessionStatus) {
                 if ($rs_SessionStat.Id -eq -1) {
-                    New-ProcessLog -logSev e -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "$($rs_SessionStat.Error)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'SSH Verification' -logMessage "$($rs_SessionStat.Error)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
                     
                     $RetryMax = 20
                     $RetrySleep = 5
@@ -136,16 +194,16 @@ ForEach ($Stage in $Stages) {
                         $rs_SessionStat = Test-LrClusterRemoteAccess -HostNames $rs_SessionStat.ComputerName
                         if ($rs_SessionStat.Id -eq -1) {
                             $CurrentRetry += 1
-                            New-ProcessLog -logSev e -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "$($rs_SessionStat.Error)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
+                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'SSH Verification' -logMessage "$($rs_SessionStat.Error)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
                         } else {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "Session ID: $($rs_SessionStat.Id)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'SSH Verification' -logMessage "Session ID: $($rs_SessionStat.Id)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
                         }
                     } until (($CurrentRetry -ge $RetryMax) -or ($rs_SessionStat.State -like "Opened"))
                 } else {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "Session ID: $($rs_SessionStat.Id)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'SSH Verification' -logMessage "Session ID: $($rs_SessionStat.Id)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
                 }
             }
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "Target: $($Stage.SSH)"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'SSH Verification' -logMessage "Target: $($Stage.SSH)"
 
             # Next transition into validating ElasticSearch Cluster Status.  If the Status is not Healthy, validate basic settings that would prevent a Healthy status.
             # If the basic settings are not set to the pre-defined requirement, update the setting and monitor the environment for recovery.
@@ -160,44 +218,12 @@ ForEach ($Stage in $Stages) {
             # Retrieve IndexStatus
             $es_PreIndexStatus = Get-EsIndexStatus
             # Retrieve a copy of the current Elasticsearch Settings
-            $es_PreClusterSettings = Get-EsSettings 
-            if ($es_ClusterHealth -notlike 'Green') {
-                New-ProcessLog -logSev w -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
-            } else {
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
-            }
-            
-            $IndexStatus = Get-EsIndexStatus
-            $IndexSettings = Get-EsSettings 
-            
-            # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
-            # This check inspects the current transient/temporary setting applied to the DX cluster
-            if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Routing' -logMessage "Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
-                
-                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
-                if ($tmp_VerifyAck.acknowledged) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Routing' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
-                    
-                } else {
-                    New-ProcessLog -logSev e -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Routing' -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
-                }
-            }
-
-            # This check inspects the current persistent setting applied to the DX cluster for routing.
-            if ($IndexSettings.persistent.cluster.routing.allocation.enable -and $IndexSettings.persistent.cluster.routing.allocation.enable -notlike $Stage.Routing) {
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.persistent.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
-                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
-                if ($tmp_VerifyAck.acknowledged) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
-                } else {
-                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
-                }
-            }
-    
+            $es_PreClusterSettings = Get-EsSettings           
 
             # Monitor Cluster Recovery
             if ($es_ClusterStatus -notlike "green") {
+                New-ProcessLog -logSev w -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
+
                 # Instantiate variables associated with monitoring cluster recovery.
                 $MaxInitConsecZero = 10
                 $MaxNodeConsecNonMax = 50
@@ -214,7 +240,8 @@ ForEach ($Stage in $Stages) {
                     $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
 
                     if ($($es_ClusterStatus.number_of_nodes) -ne $ClusterNodesMax) {
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Unassigned Shards | Cluster Nodes | Count: $($es_ClusterHealth.number_of_nodes) Target: $($ClusterNodesMax)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
+                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Unassigned Shards' -logExField1 'Cluster Nodes' -logMessage "Count: $($es_ClusterHealth.number_of_nodes) Target: $($ClusterNodesMax)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
+                        
                         $RetryMax += 5
                     } else {
                         $CurrentRetry += 1
@@ -223,24 +250,27 @@ ForEach ($Stage in $Stages) {
                         $CurrentUnassigned = $($es_ClusterHealth.unassigned_shards)
                         if ($CurrentUnassigned -ne $PreviousUnAssigned) {
                             $RetryMax += 2
-                            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Unassigned Shards | Recovery Progression | Unassigned: $($es_ClusterHealth.unassigned_shards)  Initializing: $($es_ClusterHealth.initializing_shards)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logMessage "Unassigned: $($es_ClusterHealth.unassigned_shards)  Initializing: $($es_ClusterHealth.initializing_shards)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
                         } else {
-                            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Unassigned Shards | Recovery Stalled | Unassigned: $($es_ClusterHealth.unassigned_shards)  Initializing: $($es_ClusterHealth.initializing_shards)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled' -logMessage "Unassigned: $($es_ClusterHealth.unassigned_shards)  Initializing: $($es_ClusterHealth.initializing_shards)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
                         }
                         $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average)
                     }
                 } until (($CurrentRetry -ge $RetryMax) -or ($es_ClusterStatus -like "green") -or (($InitHistoryStats.count -eq $MaxInitConsecZero) -and ($InitHistoryStats.sum -eq 0)))
+            } else {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
             }
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | End | Target Requirement Met"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logExField1 'End' -logMessage "Target Requirement Met"
 
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Check Required: $($Stage.ManualCheck)"
+
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)"
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Elasticsearch Rolling Restart" -Question "Are you sure you want to proceed?"
                 if ($UserDecision -eq 0) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Manual authorization granted.  Proceeding to next stage."
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Manual authorization granted.  Proceeding to next stage."
                     $TransitionStage = $true
                 } else {
-                    Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Aborting rolling restart process due to manual halt."
+                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Aborting rolling restart process due to manual halt."
                     $AbortStatus = $true
                 }
             } else {
@@ -250,6 +280,7 @@ ForEach ($Stage in $Stages) {
 
             # Apply Stay Loop Delay if we're not aborting and not transitioning to the next phase
             if ($TransitionStage -eq $false -and $AbortStatus -eq $false) {
+                New-ProcessLog -logSev d -logStage $($Stage.Name) -logStep 'Pre Stage Iteration Delay' -logMessage "Sleeping for: $($IterationDelay)"
                 start-sleep $IterationDelay
             }
         } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)        
@@ -258,33 +289,12 @@ ForEach ($Stage in $Stages) {
     # Begin Section - Start
     if ($Stage.name -Like "Start") {
         Do {
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
-            $IndexStatus = Get-EsIndexStatus
-            $IndexSettings = Get-EsSettings 
-            $Indexes = Get-EsIndex
+            # Retrieve Cluster Status at the start of each stage's loop
+            $es_ClusterHealth = Get-EsClusterHealth
+            $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
+            $lr_ConsulLocks = Get-LrConsulLocks
 
-            # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
-            # This check inspects the current transient/temporary setting applied to the DX cluster
-            if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
-                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
-                if ($tmp_VerifyAck.acknowledged) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
-                } else {
-                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
-                }
-            }
 
-            # This check inspects the current persistent setting applied to the DX cluster for routing.
-            if ($IndexSettings.persistent.cluster.routing.allocation.enable -and $IndexSettings.persistent.cluster.routing.allocation.enable -notlike $Stage.Routing) {
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.persistent.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
-                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
-                if ($tmp_VerifyAck.acknowledged) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
-                } else {
-                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
-                }
-            }
 
             # Optional - Close down number of cluster indexes to reduce node recovery time
             if ($Stage.IndexSize -gt 0) {
@@ -295,6 +305,7 @@ ForEach ($Stage in $Stages) {
                 $HotIndexOpen = $HotIndexes.count
                 $HotIndexClosed = $TargetClosedIndexes.count
                 ForEach ($TargetIndex in $TargetClosedIndexes) {
+
                     write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Close Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize) | Closing Index: $($TargetIndex.index)"
                     $CloseStatus = Close-EsIndex -Index $TargetIndex.Index
                     if ($CloseStatus.acknowledged) {
@@ -310,8 +321,6 @@ ForEach ($Stage in $Stages) {
                 }
             }
 
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Flush | Submitting cluster flush to Elasticsearch Master Node"
-            $FlushResults = Invoke-EsFlushSync
             <#
             $FlushSuccessSum = $FlushResults | Measure-Object -Property 'successful' -Sum | Select-Object -ExpandProperty 'Sum'
             $FlushFailSum = $FlushResults | Measure-Object -Property 'failed' -Sum | Select-Object -ExpandProperty 'Sum'
@@ -343,11 +352,25 @@ ForEach ($Stage in $Stages) {
     if ($Stage.name -Like "Running") {
         ForEach ($Node in $RestartOrder) {
             Do {
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Restart Node | Node: $($Node.hostname) | Note here"
+                # Retrieve Cluster Status at the start of each stage's loop
+                $es_ClusterHealth = Get-EsClusterHealth
+                $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
+                $lr_ConsulLocks = Get-LrConsulLocks
+
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Restart Node | Node: $($Node.hostname) | Begin"
                 # Add in restart to system here, using $($Node.ipaddr)
                 $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-                $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {get-host}
-                Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | PSComputerName: $($HostResult.PSComputerName)   RunSpace: $($HostResult.Name)"
+
+                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Flush | Submitting cluster flush to Elasticsearch Master Node"
+                $FlushResults = Invoke-EsFlushSync
+
+                if ($DryRun) {
+                    $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {get-host}
+                    Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | PSComputerName: $($HostResult.PSComputerName)   RunSpace: $($HostResult.Name)"
+                } else {
+                    $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {Restart-Computer}
+                }
+                
                 
                 write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | Check Required: $($Stage.ManualCheck)"
                 if ($Stage.ManualCheck -eq $true) {
@@ -368,6 +391,11 @@ ForEach ($Stage in $Stages) {
 
     if ($Stage.name -like "Completed") {
         Do {
+            # Retrieve Cluster Status at the start of each stage's loop
+            $es_ClusterHealth = Get-EsClusterHealth
+            $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
+            $lr_ConsulLocks = Get-LrConsulLocks
+
             $IndexStatus = Get-EsIndexStatus
             $IndexSettings = Get-EsSettings
 
@@ -392,6 +420,9 @@ ForEach ($Stage in $Stages) {
                 $HotIndexOpen = $HotIndexes.count
                 $HotIndexClosed = $ClosedHotIndexes.count
                 ForEach ($TargetIndex in $ClosedHotIndexes) {
+                    $es_ClusterHealth = Get-EsClusterHealth
+                    $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
+
                     write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize) | Opening Index: $($TargetIndex.Index)"
                     $OpenStatus = Open-EsIndex -Index $TargetIndex.Index
                     if ($OpenStatus.acknowledged) {
@@ -420,7 +451,5 @@ ForEach ($Stage in $Stages) {
             }
         } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
     }
-    
-    # End Section - Start
-    write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Rolling Restart | End Stage | Stage: $($Stage.Name)"
+    New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Rolling Restart' -logMessage "Stage: $($Stage.Name)" -logExField1 "End Stage"
 }
