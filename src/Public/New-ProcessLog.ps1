@@ -14,7 +14,7 @@ Function New-ProcessLog {
         [string] $logStep,
 
 
-        [Parameter(Mandatory = $true, Position = 3)]
+        [Parameter(Mandatory = $false, Position = 3)]
         [string] $esHealth,
 
 
@@ -37,7 +37,7 @@ Function New-ProcessLog {
         [switch] $PassThru
     )
     Begin {
-        
+        $TC = (Get-Culture).TextInfo
     }
    
     Process {
@@ -53,10 +53,18 @@ Function New-ProcessLog {
             default {$logSev = "LOGGER ERROR"}
         }
 
+        # Retrieve cluster health at each logging instance
+        if ($esHealth) {
+            $ClusterStatus = $($TC.ToTitleCase($esHealth))
+        } else {
+            $ClusterHealth = Get-EsClusterHealth
+            $ClusterStatus = $($TC.ToTitleCase($($ClusterHealth.status)))
+        }
+
         $LogObj = [PSCustomObject]@{
             timestamp = $cTime
             severity = $_logSev
-            health = $esHealth
+            health = $ClusterStatus
             stage = $logStage
             step = $LogStep
             message = $logMessage
