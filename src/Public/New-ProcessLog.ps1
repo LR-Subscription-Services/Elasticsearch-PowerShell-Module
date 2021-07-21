@@ -2,7 +2,7 @@ Function New-ProcessLog {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $true, Position = 0)]
-        [ValidateSet('e', 's', 'a', 'i', 'd', ignorecase=$true)]
+        [ValidateSet('e', 's', 'a', 'i', 'd', 'w', ignorecase=$true)]
         [string] $logSev,
 
 
