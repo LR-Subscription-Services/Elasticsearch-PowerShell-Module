@@ -224,7 +224,9 @@ ForEach ($Stage in $Stages) {
             if ($es_ClusterStatus -notlike "green") {
                 New-ProcessLog -logSev w -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
 
+                Invoke-MonitorEsRecovery -Stage $Stage.Name
                 # Instantiate variables associated with monitoring cluster recovery.
+                <#
                 $MaxInitConsecZero = 10
                 $MaxNodeConsecNonMax = 50
                 $RetryMax = 20
@@ -257,6 +259,7 @@ ForEach ($Stage in $Stages) {
                         $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average)
                     }
                 } until (($CurrentRetry -ge $RetryMax) -or ($es_ClusterStatus -like "green") -or (($InitHistoryStats.count -eq $MaxInitConsecZero) -and ($InitHistoryStats.sum -eq 0)))
+                #>
             } else {
                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
             }
@@ -371,7 +374,6 @@ ForEach ($Stage in $Stages) {
                     $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {Restart-Computer}
                 }
                 
-                
                 write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | Check Required: $($Stage.ManualCheck)"
                 if ($Stage.ManualCheck -eq $true) {
                     $UserDecision = Invoke-SelectionPrompt -Title "Node Complete" -Question "Do you want to proceed onto the next node?"
@@ -429,6 +431,7 @@ ForEach ($Stage in $Stages) {
                         $HotIndexOpen += 1
                         $HotIndexClosed -= 1
                         write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize) | Open Status: Completed"
+                        Invoke-MonitorEsRecovery -Stage $Stage.Name
                     } else {
                         write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize) | Open Status: Incomplete"
                         write-host $OpenStatus
