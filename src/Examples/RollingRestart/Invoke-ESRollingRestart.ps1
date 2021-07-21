@@ -109,21 +109,25 @@ ForEach ($Stage in $Stages) {
     $lr_ConsulLocks = Get-LrConsulLocks
     # Check if the AbortStatus has been set to True.
     if ($AbortStatus -eq $true) {
-        write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Abort Status | Abort Status set to $($AbortStatus).  Aborting Rolling Restart Automation."
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Abort Status' -logMessage "Abort Status set to $($AbortStatus).  Aborting Rolling Restart Automation."
+        #write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Abort Status | Abort Status set to $($AbortStatus).  Aborting Rolling Restart Automation."
         break
     }
-    write-host "Status | Stage: $($Stage.Name) | Health: $es_ClusterStatus  | Rolling Restart | Begin Stage | Stage: $($Stage.Name)"
+    New-ProcessLog -logSev s -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Begin Stage' -logMessage "Stage: $($Stage.Name)"
+
     
     # Status to support validating transition to the next stage
     $TransitionStage = $false
     if ($Stage.name -Like "Pre") {
         Do {
             # Begin with validating remote access into the DX cluster's nodes
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Begin Stage | Target: $($Stage.SSH)"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "Target: $($Stage.SSH)"
+
             $rs_SessionStatus = Test-LrClusterRemoteAccess -HostNames $es_ClusterHosts.ipaddr
             ForEach ($rs_SessionStat in $rs_SessionStatus) {
                 if ($rs_SessionStat.Id -eq -1) {
-                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Session State: $($rs_SessionStat.State) | Target: $($rs_SessionStat.ComputerName) | $($rs_SessionStat.Error)"
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "$($rs_SessionStat.Error)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
+                    
                     $RetryMax = 20
                     $RetrySleep = 5
                     $CurrentRetry = 0
@@ -132,23 +136,21 @@ ForEach ($Stage in $Stages) {
                         $rs_SessionStat = Test-LrClusterRemoteAccess -HostNames $rs_SessionStat.ComputerName
                         if ($rs_SessionStat.Id -eq -1) {
                             $CurrentRetry += 1
-                            write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Session State: $($rs_SessionStat.State) | Target: $($rs_SessionStat.ComputerName) | $($rs_SessionStat.Error)"
+                            New-ProcessLog -logSev e -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "$($rs_SessionStat.Error)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
                         } else {
-                            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Session State: $($rs_SessionStat.State) | Target: $($rs_SessionStat.ComputerName) | Session ID: $($rs_SessionStat.Id)"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "Session ID: $($rs_SessionStat.Id)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
                         }
                     } until (($CurrentRetry -ge $RetryMax) -or ($rs_SessionStat.State -like "Opened"))
                 } else {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | Session State: $($rs_SessionStat.State) | Target: $($rs_SessionStat.ComputerName) | Session ID: $($rs_SessionStat.Id)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "Session ID: $($rs_SessionStat.Id)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
                 }
             }
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: SSH Verification | End Stage | Target: $($Stage.SSH)"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'SSH Verification' -logMessage "Target: $($Stage.SSH)"
 
             # Next transition into validating ElasticSearch Cluster Status.  If the Status is not Healthy, validate basic settings that would prevent a Healthy status.
             # If the basic settings are not set to the pre-defined requirement, update the setting and monitor the environment for recovery.
             # If the recovery monitoring does not progress the process will ultimately abort, indicating the cause for the abort (total max retries or max retries without progress)
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Begin Stage | Target: $($Stage.ClusterStatus)"
-            
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
+
             # Cluster is Green, record Node details (ip, heap, ram, cpu, load, role, master, name)
             $es_Nodes = Get-EsNodes
             # Cluster is Green, record Cluster Node Count
@@ -159,20 +161,26 @@ ForEach ($Stage in $Stages) {
             $es_PreIndexStatus = Get-EsIndexStatus
             # Retrieve a copy of the current Elasticsearch Settings
             $es_PreClusterSettings = Get-EsSettings 
-
-            write-host "Warning | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Health Validation | Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
+            if ($es_ClusterHealth -notlike 'Green') {
+                New-ProcessLog -logSev w -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
+            } else {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
+            }
+            
             $IndexStatus = Get-EsIndexStatus
             $IndexSettings = Get-EsSettings 
             
             # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
             # This check inspects the current transient/temporary setting applied to the DX cluster
             if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Routing' -logMessage "Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
+                
                 $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
                 if ($tmp_VerifyAck.acknowledged) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Routing' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+                    
                 } else {
-                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -esHealth $es_ClusterStatus -logStep 'Cluster Routing' -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
                 }
             }
 
