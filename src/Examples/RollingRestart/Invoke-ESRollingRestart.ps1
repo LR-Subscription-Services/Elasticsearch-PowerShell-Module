@@ -223,50 +223,14 @@ ForEach ($Stage in $Stages) {
             # Monitor Cluster Recovery
             if ($es_ClusterStatus -notlike "green") {
                 New-ProcessLog -logSev w -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
-
                 Invoke-MonitorEsRecovery -Stage $Stage.Name
-                # Instantiate variables associated with monitoring cluster recovery.
-                <#
-                $MaxInitConsecZero = 10
-                $MaxNodeConsecNonMax = 50
-                $RetryMax = 20
-                $RetrySleep = 5
-                $CurrentRetry = 0
-                $PreviousUnAssigned = 0
-                $CurrentUnassigned = 0
-                $InitHistory = [List[int]]::new()
-                Do {
-                    start-sleep $RetrySleep
-                    $PreviousUnAssigned = $($es_ClusterHealth.unassigned_shards)
-                    $es_ClusterHealth = Get-EsClusterHealth
-                    $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
-
-                    if ($($es_ClusterStatus.number_of_nodes) -ne $ClusterNodesMax) {
-                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Unassigned Shards' -logExField1 'Cluster Nodes' -logMessage "Count: $($es_ClusterHealth.number_of_nodes) Target: $($ClusterNodesMax)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
-                        
-                        $RetryMax += 5
-                    } else {
-                        $CurrentRetry += 1
-                        $InitHistory.Add($($es_ClusterHealth.initializing_shards))
-        
-                        $CurrentUnassigned = $($es_ClusterHealth.unassigned_shards)
-                        if ($CurrentUnassigned -ne $PreviousUnAssigned) {
-                            $RetryMax += 2
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logMessage "Unassigned: $($es_ClusterHealth.unassigned_shards)  Initializing: $($es_ClusterHealth.initializing_shards)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
-                        } else {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled' -logMessage "Unassigned: $($es_ClusterHealth.unassigned_shards)  Initializing: $($es_ClusterHealth.initializing_shards)  Attempt: $CurrentRetry  Remaining: $($RetryMax - $CurrentRetry)"
-                        }
-                        $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average)
-                    }
-                } until (($CurrentRetry -ge $RetryMax) -or ($es_ClusterStatus -like "green") -or (($InitHistoryStats.count -eq $MaxInitConsecZero) -and ($InitHistoryStats.sum -eq 0)))
-                #>
             } else {
                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
             }
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logExField1 'End' -logMessage "Target Requirement Met"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logExField1 'End Step' -logMessage "Target Requirement Met"
 
 
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Elasticsearch Rolling Restart" -Question "Are you sure you want to proceed?"
                 if ($UserDecision -eq 0) {
@@ -279,6 +243,7 @@ ForEach ($Stage in $Stages) {
             } else {
                 $TransitionStage -eq $true
             }
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
 
 
             # Apply Stay Loop Delay if we're not aborting and not transitioning to the next phase
@@ -308,17 +273,16 @@ ForEach ($Stage in $Stages) {
                 $HotIndexOpen = $HotIndexes.count
                 $HotIndexClosed = $TargetClosedIndexes.count
                 ForEach ($TargetIndex in $TargetClosedIndexes) {
-
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Close Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize) | Closing Index: $($TargetIndex.index)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndex.Index)"
+                    
                     $CloseStatus = Close-EsIndex -Index $TargetIndex.Index
                     if ($CloseStatus.acknowledged) {
                         $HotIndexOpen -= 1
                         $HotIndexClosed += 1
                         $ClosedHotIndexes.add($TargetIndex)
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Close Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize) | Close Status: Completed"
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Status: Completed"
                     } else {
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Close Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize) | Close Status: Incomplete"
-                        write-host $CloseStatus
+                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Status: Incomplete"
                     }
                     
                 }
@@ -330,19 +294,20 @@ ForEach ($Stage in $Stages) {
             $FlushTotal = $FlushResults | Measure-Object -Property 'total' -Sum | Select-Object -ExpandProperty 'Sum'
             write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Flush | Total Shards: $FlushTotal  Sucessful: $FlushSuccessSum  Failed: $FlushFailSum"
             #>
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Check Required: $($Stage.ManualCheck)"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
                 if ($UserDecision -eq 0) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Manual authorization granted.  Proceeding to next stage."
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Manual authorization granted.  Proceeding to next stage."
                     $TransitionStage = $true
                 } else {
-                    Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Aborting rolling restart process due to manual halt."
+                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Aborting rolling restart process due to manual halt."
                     $AbortStatus = $true
                 }
             } else {
                 $TransitionStage -eq $true
             }
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
 
             # Apply Stay Loop Delay if we're not aborting and not transitioning to the next phase
             if ($TransitionStage -eq $false -and $AbortStatus -eq $false) {
@@ -374,19 +339,20 @@ ForEach ($Stage in $Stages) {
                     $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {Restart-Computer}
                 }
                 
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | Check Required: $($Stage.ManualCheck)"
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
                 if ($Stage.ManualCheck -eq $true) {
                     $UserDecision = Invoke-SelectionPrompt -Title "Node Complete" -Question "Do you want to proceed onto the next node?"
                     if ($UserDecision -eq 0) {
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification |  Node: $($Node.hostname) | Manual authorization granted.  Proceeding to next stage."
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Manual authorization granted.  Proceeding to next stage."
                         $TransitionStage = $true
                     } else {
-                        Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification |  Node: $($Node.hostname) | Aborting rolling restart process due to manual halt."
+                        New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Aborting rolling restart process due to manual halt."
                         $AbortStatus = $true
                     }
                 } else {
                     $TransitionStage -eq $true
                 }
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
             } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
         }
     }
@@ -401,57 +367,41 @@ ForEach ($Stage in $Stages) {
             $IndexStatus = Get-EsIndexStatus
             $IndexSettings = Get-EsSettings
 
-            # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
-            # This check inspects the current transient/temporary setting applied to the DX cluster
-            if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
-                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
-                if ($tmp_VerifyAck.acknowledged) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Set Cluster routing settings to target: $($tmp_VerifyAck.transient)"
-                } else {
-                    write-host "Error | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Routing | Unable to update cluster settings to target: $($Stage.Routing)"
-                }
-            }
-
-
             $Indexes = Get-EsIndex
             if ($ClosedHotIndexes) {
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Begin opening indicies to restore production environment"
-                
+                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Begin Step" -logMessage "Opening hot indicies to restore production environment state."
                 $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
                 $HotIndexOpen = $HotIndexes.count
                 $HotIndexClosed = $ClosedHotIndexes.count
                 ForEach ($TargetIndex in $ClosedHotIndexes) {
-                    $es_ClusterHealth = Get-EsClusterHealth
-                    $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
-
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize) | Opening Index: $($TargetIndex.Index)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Opening Index: $($TargetIndex.Index)"
                     $OpenStatus = Open-EsIndex -Index $TargetIndex.Index
                     if ($OpenStatus.acknowledged) {
                         $HotIndexOpen += 1
                         $HotIndexClosed -= 1
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize) | Open Status: Completed"
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Completed" 
                         Invoke-MonitorEsRecovery -Stage $Stage.Name
                     } else {
-                        write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Open Index | Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize) | Open Status: Incomplete"
-                        write-host $OpenStatus
+                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Incomplete" 
                     }
                 }
+                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "End Step" -logMessage "Opening hot indicies to restore production environment state."
             }
 
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Check Required: $($Stage.ManualCheck)"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
                 if ($UserDecision -eq 0) {
-                    write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Manual authorization granted.  Proceeding to next stage."
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Manual authorization granted.  Proceeding to next stage."
                     $TransitionStage = $true
                 } else {
-                    Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Aborting rolling restart process due to manual halt."
+                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Aborting rolling restart process due to manual halt."
                     $AbortStatus = $true
                 }
             } else {
                 $TransitionStage -eq $true
             }
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
         } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
     }
     New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Rolling Restart' -logMessage "Stage: $($Stage.Name)" -logExField1 "End Stage"
