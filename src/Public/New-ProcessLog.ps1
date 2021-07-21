@@ -5,7 +5,7 @@ Function New-ProcessLog {
         [ValidateSet('e', 's', 'a', 'i', 'd', ignorecase=$true)]
         [string] $logSev,
 
-        
+
         [Parameter(Mandatory = $true, Position = 1)]
         [string] $logStage,
 
@@ -46,6 +46,7 @@ Function New-ProcessLog {
         Switch ($logSev) {
             e {$_logSev = 'ERROR'}
             s {$_logSev = 'STATUS'}
+            w {$_logSev = 'WARNING'}
             a {$_logSev = 'ALERT'}
             i {$_logSev = 'INFO'}
             d {$_logSev = 'DEBUG'}
@@ -58,9 +59,9 @@ Function New-ProcessLog {
             health = $esHealth
             stage = $logStage
             step = $LogStep
-            message = $Message
+            message = $logMessage
         }
-        $LogOutput = "$($LogObj.cTime) | $($LogObj.severity) | Stage: $($LogObj.stage) | Health: $($LogObj.health) | Step: $($LogObj.step) | "
+        $LogOutput = "$($LogObj.timestamp) | $($LogObj.severity) | Stage: $($LogObj.stage) | Health: $($LogObj.health) | Step: $($LogObj.step) | "
 
         if ($logExField1) {
             $LogObj | Add-Member -MemberType NoteProperty -Name step_note_01 -Value $logExField1 -Force
