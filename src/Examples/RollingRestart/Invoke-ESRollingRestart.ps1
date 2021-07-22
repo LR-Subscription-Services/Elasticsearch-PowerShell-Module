@@ -266,7 +266,7 @@ ForEach ($Stage in $Stages) {
 
             # Optional - Close down number of cluster indexes to reduce node recovery time
             if ($Stage.IndexSize -gt 0) {
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Close Index | Begin closing indicies to reduce recovery time requirements"
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Begin Step" -logMessage "Begin closing indicies to reduce recovery time requirements" 
 
                 $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
                 $TargetClosedIndexes = $HotIndexes | Select-Object -First $($HotIndexes.count - $Stage.IndexSize)
@@ -325,18 +325,20 @@ ForEach ($Stage in $Stages) {
                 $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
                 $lr_ConsulLocks = Get-LrConsulLocks
 
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Restart Node | Node: $($Node.hostname) | Begin"
+                
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Restart Node' -logMessage "Node: $($Node.hostname)" -logExField1 'Begin Step'
                 # Add in restart to system here, using $($Node.ipaddr)
                 $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-
-                write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Flush | Submitting cluster flush to Elasticsearch Master Node"
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Flush' -logMessage "Submitting cluster flush to Elasticsearch"
                 $FlushResults = Invoke-EsFlushSync
 
                 if ($DryRun) {
                     $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {get-host}
-                    Write-Host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Manual Verification | Node: $($Node.hostname) | PSComputerName: $($HostResult.PSComputerName)   RunSpace: $($HostResult.Name)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Command: get-host" -logMessage "PSComputerName: $($HostResult.PSComputerName)   RunSpace: $($HostResult.Name)"
                 } else {
                     $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {Restart-Computer}
+                    write-host $HostResult
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Command: restart-computer" -logMessage " TEMP "
                 }
                 
                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
@@ -353,6 +355,7 @@ ForEach ($Stage in $Stages) {
                     $TransitionStage -eq $true
                 }
                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Restart Node' -logMessage "Node: $($Node.hostname)" -logExField1 'End Step'
             } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
         }
     }
