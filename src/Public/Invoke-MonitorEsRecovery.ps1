@@ -63,8 +63,8 @@ Function Invoke-MonitorEsRecovery {
                     New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logExField1 'Recover EMDB Indices' -logMessage "Performing index recovery"
                     Invoke-LrEmdbSyncReset
                 }
-                New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logMessage "Sleeping for 30 seconds"
-                start-sleep 30
+                #New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logMessage "Sleeping for 30 seconds"
+                #start-sleep 30
             }
             # Store initialization history
             $InitHistory.Add($($ClusterHealth.initializing_shards))
