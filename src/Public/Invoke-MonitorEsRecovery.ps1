@@ -10,8 +10,11 @@ Function Invoke-MonitorEsRecovery {
         [Parameter(Mandatory = $false, Position = 1)]
         [Int] $Sleep,
 
-        [Parameter(Mandatory = $false, Position = 1)]
-        [int] $MaxAttempts
+        [Parameter(Mandatory = $false, Position = 2)]
+        [int] $MaxAttempts,
+
+        [Parameter(Mandatory = $true, Position = 3)]
+        [object] $Nodes
     )
     Begin {
         $InitHistory = [List[int]]::new()
@@ -48,6 +51,21 @@ Function Invoke-MonitorEsRecovery {
             $ClusterHealth = Get-EsClusterHealth
             $es_ClusterStatus = $($TC.ToTitleCase($($ClusterHealth.status)))
 
+            if ($es_ClusterStatus -like 'red') {
+                $BadIndexes = Get-EsIndex | Where-Object -Property 'health' -like 'red'
+                # Reset Columbo
+                if ($BadIndexes.index -contains 'field_translations') {
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logExField1 'Recover Field Translation Indices' -logMessage "Performing index recovery"
+                    Invoke-LrTransSyncReset -Node $Nodes[0].ipaddr
+                }
+                # Reset Carpenter
+                if ((@($BadIndexes.index) -like 'emdb*').Count -gt 0) {
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logExField1 'Recover EMDB Indices' -logMessage "Performing index recovery"
+                    Invoke-LrEmdbSyncReset
+                }
+                New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logMessage "Sleeping for 30 seconds"
+                start-sleep 30
+            }
             # Store initialization history
             $InitHistory.Add($($ClusterHealth.initializing_shards))
 
