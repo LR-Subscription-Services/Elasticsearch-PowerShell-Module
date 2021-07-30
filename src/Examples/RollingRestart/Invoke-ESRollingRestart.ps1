@@ -416,7 +416,7 @@ ForEach ($Stage in $Stages) {
                         New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Test-Connection Max retries reached"
                         $AlertCheck -eq $true
                     } else {
-                        New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Beginning recovery"
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Beginning recovery"
                         $tmp_VerifyAck = Update-EsIndexRouting -Enable 'all'
                         if ($tmp_VerifyAck.acknowledged) {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
