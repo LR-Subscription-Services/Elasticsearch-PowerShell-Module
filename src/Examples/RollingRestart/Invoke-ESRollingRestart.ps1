@@ -41,12 +41,16 @@ ForEach ($Node in $($es_ClusterHosts | Where-Object -Property type -like 'hot' |
     $RestartOrder.Add($Node)
 }
 
-$RunAsServer = $es_ClusterHosts | Where-Object -Property 'hostname' -eq ${hostname}
+$RunAsServer = $es_ClusterHosts | Where-Object -Property 'hostname' -eq $(Invoke-Command -ScriptBlock {bash -c "hostname"})
 if ($RunAsServer) {
     New-ProcessLog -logSev a -logStage 'Init' -logStep 'Restart Order' -logMessage "Removing restart management node from restart list.  Node: $($RunAsServer.hostname)"
     $RestartOrder.Remove($RunAsServer) | Out-Null
 }
 
+# Verify SSH key established
+
+#$(Invoke-Command -ScriptBlock {bash -c "eval `"`$(ssh-agent)`""})
+$(Invoke-Command -ScriptBlock {bash -c "ssh-add ~/.ssh/id_rsa"})
 
 
 # List of index that are closed as part of auto rolling restart to be re-opened in the Completed stage
@@ -76,6 +80,7 @@ $Stages.add([PSCustomObject]@{
     Routing = "Primaries"
     MaxRetry = 40
     RetryWait = 15
+    NodeDelayTimeout = 60
     Flush = $true
     ManualCheck = $false
 })
@@ -98,6 +103,7 @@ $Stages.add([PSCustomObject]@{
     Routing = "All"
     MaxRetry = 40
     RetryWait = 15
+    NodeDelayTimeout = 300
     Flush = $false
     ManualCheck = $true
 })
@@ -308,12 +314,18 @@ ForEach ($Stage in $Stages) {
                 }
             }
 
-            <#
-            $FlushSuccessSum = $FlushResults | Measure-Object -Property 'successful' -Sum | Select-Object -ExpandProperty 'Sum'
-            $FlushFailSum = $FlushResults | Measure-Object -Property 'failed' -Sum | Select-Object -ExpandProperty 'Sum'
-            $FlushTotal = $FlushResults | Measure-Object -Property 'total' -Sum | Select-Object -ExpandProperty 'Sum'
-            write-host "Info | Stage: $($Stage.Name) | Health: $es_ClusterStatus | Step: Cluster Flush | Total Shards: $FlushTotal  Sucessful: $FlushSuccessSum  Failed: $FlushFailSum"
-            #>
+            if ($Stage.NodeDelayTimeout) {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "Begin Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
+                $UpdateVerify = Update-EsNodeDelayTimeout -Value $Stage.NodeDelayTimeout -Type 's'
+                if ($UpdateVerify.acknowledged) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Successfully updated Node Timeout Delay"
+                } else {
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Unable to update Node Timeout Delay"
+                }
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "End Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
+            }
+
+
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
@@ -325,7 +337,7 @@ ForEach ($Stage in $Stages) {
                     $AbortStatus = $true
                 }
             } else {
-                $TransitionStage -eq $true
+                $TransitionStage = $true
             }
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
 
@@ -347,6 +359,34 @@ ForEach ($Stage in $Stages) {
                     $es_ClusterHealth = Get-EsClusterHealth
                     $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
                     $lr_ConsulLocks = Get-LrConsulLocks
+
+                    if ($Node.type -like 'warm') {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -logMessage "Reviewing warm nodes for any open indices"
+                        $OpenWarmIndices = Get-EsIndex | Where-Object -FilterScript {($_.status -like 'open') -and ($_.rep -eq 0)}
+                        $WarmIndexClosed = 0
+                        $WarmIndexOpened = $OpenWarmIndices.index.count
+                        ForEach ($TargetIndex in $OpenWarmIndices) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Index: $($TargetIndex.Index)"
+                        
+                            $CloseStatus = Close-EsIndex -Index $TargetIndex.Index
+                            if ($CloseStatus.acknowledged) {
+                                $WarmIndexOpened  -= 1
+                                $WarmIndexClosed += 1
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Status: Completed"
+                            } else {
+                                New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Status: Incomplete"
+                            }
+                        }
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -logMessage "Open indices review complete"
+                    }
+
+                    # Update cluster routing to Primaries before node reboot
+                    $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
+                    if ($tmp_VerifyAck.acknowledged) {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+                    } else {
+                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
+                    }
 
                     # Add in restart to system here, using $($Node.ipaddr)
                     $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
@@ -376,6 +416,14 @@ ForEach ($Stage in $Stages) {
                         New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Test-Connection Max retries reached"
                         $AlertCheck -eq $true
                     } else {
+                        New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Beginning recovery"
+                        $tmp_VerifyAck = Update-EsIndexRouting -Enable 'all'
+                        if ($tmp_VerifyAck.acknowledged) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+                        } else {
+                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Unable to update cluster transient settings to target: all"
+                        }
+
                         Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
                     }
                     
@@ -391,7 +439,7 @@ ForEach ($Stage in $Stages) {
                             $AbortStatus = $true
                         }
                     } else {
-                        $TransitionNode -eq $true
+                        $TransitionNode = $true
                     }
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'End Step' -logExField1 "Node: $($Node.hostname)"
                 } While ($TransitionNode -eq $false -and $AbortStatus -eq $false)
@@ -446,6 +494,17 @@ ForEach ($Stage in $Stages) {
                     }
                 }
                 New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "End Step" -logMessage "Opening hot indicies to restore production environment state."
+            }
+
+            if ($Stage.NodeDelayTimeout) {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "Begin Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
+                $UpdateVerify = Update-EsNodeDelayTimeout -Value $Stage.NodeDelayTimeout -Type 's'
+                if ($UpdateVerify.acknowledged) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Successfully updated Node Timeout Delay"
+                } else {
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Unable to update Node Timeout Delay"
+                }
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "End Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
             }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
