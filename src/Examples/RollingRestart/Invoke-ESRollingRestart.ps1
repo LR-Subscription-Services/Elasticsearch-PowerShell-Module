@@ -264,7 +264,7 @@ ForEach ($Stage in $Stages) {
                     $AbortStatus = $true
                 }
             } else {
-                $TransitionStage -eq $true
+                $TransitionStage = $true
             }
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
 
@@ -458,7 +458,7 @@ ForEach ($Stage in $Stages) {
                     $AbortStatus = $true
                 }
             } else {
-                $TransitionStage -eq $true
+                $TransitionStage = $true
             }
 
         #} While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
@@ -518,7 +518,7 @@ ForEach ($Stage in $Stages) {
                     $AbortStatus = $true
                 }
             } else {
-                $TransitionStage -eq $true
+                $TransitionStage = $true
             }
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
         } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
