@@ -63,6 +63,8 @@ $Stages.add([PSCustomObject]@{
     SSH = "Verify"
     IndexSize = -1
     Routing = "All"
+    MaxRetry = 40
+    RetryWait = 15
     Flush = $false
     ManualCheck = $true
 })
@@ -70,18 +72,20 @@ $Stages.add([PSCustomObject]@{
     Name = "Start"
     ClusterStatus = "Green"
     SSH = $null
-    IndexSize = 30
+    IndexSize = 20
     Routing = "Primaries"
+    MaxRetry = 40
+    RetryWait = 15
     Flush = $true
-    ManualCheck = $true
+    ManualCheck = $false
 })
 $Stages.add([PSCustomObject]@{
     Name = "Running"
     ClusterStatus = "Yellow"
     SSH = $null
-    IndexSize = 30
+    IndexSize = 20
     Routing = "Primaries"
-    MaxRetry = 30
+    MaxRetry = 40
     RetryWait = 15
     Flush = $false
     ManualCheck = $false
@@ -92,6 +96,8 @@ $Stages.add([PSCustomObject]@{
     SSH = $null
     IndexSize = -1
     Routing = "All"
+    MaxRetry = 40
+    RetryWait = 15
     Flush = $false
     ManualCheck = $true
 })
@@ -101,6 +107,8 @@ $Stages.add([PSCustomObject]@{
     SSH = "Verify"
     IndexSize = -1
     Routing = "All"
+    MaxRetry = 40
+    RetryWait = 15
     Flush = $false
     ManualCheck = $true
 })
@@ -232,7 +240,7 @@ ForEach ($Stage in $Stages) {
             # Monitor Cluster Recovery
             if ($es_ClusterStatus -notlike "green") {
                 New-ProcessLog -logSev w -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
-                Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder
+                Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
             } else {
                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
             }
@@ -368,7 +376,7 @@ ForEach ($Stage in $Stages) {
                         New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Test-Connection Max retries reached"
                         $AlertCheck -eq $true
                     } else {
-                        Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder
+                        Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
                     }
                     
                     
@@ -432,7 +440,7 @@ ForEach ($Stage in $Stages) {
                         $HotIndexOpen += 1
                         $HotIndexClosed -= 1
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Completed" 
-                        Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder
+                        Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
                     } else {
                         New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Incomplete" 
                     }
