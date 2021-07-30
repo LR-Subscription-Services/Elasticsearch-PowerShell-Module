@@ -1,7 +1,7 @@
 Function Remove-EsIndex {
     [CmdletBinding()]
     Param(
-        [Parameter(Mandatory = $true, Position = 0)]
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true, Position = 0)]
         [string] $Index,
 
 

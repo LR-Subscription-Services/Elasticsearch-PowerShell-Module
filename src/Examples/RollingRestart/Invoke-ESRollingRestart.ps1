@@ -105,7 +105,7 @@ $Stages.add([PSCustomObject]@{
     RetryWait = 15
     NodeDelayTimeout = 300
     Flush = $false
-    ManualCheck = $true
+    ManualCheck = $false
 })
 $Stages.add([PSCustomObject]@{
     Name = "End"
@@ -116,7 +116,7 @@ $Stages.add([PSCustomObject]@{
     MaxRetry = 40
     RetryWait = 15
     Flush = $false
-    ManualCheck = $true
+    ManualCheck = $false
 })
 
 # Status to support aborting at the transition point from the exit of one process tage prior to beginning the next stage
