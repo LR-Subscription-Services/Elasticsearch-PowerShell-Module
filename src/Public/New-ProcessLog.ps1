@@ -29,11 +29,20 @@ Function New-ProcessLog {
         [Parameter(Mandatory = $false, Position = 6)]
         [string] $logExField2,
 
+
         [Parameter(Mandatory = $false, Position = 7)]
         $LogFile,
 
 
         [Parameter(Mandatory = $false, Position = 8)]
+        [string] $WebhookDest,
+
+        
+        [Parameter(Mandatory = $false, Position = 9)]
+        [switch] $SendWebhook,
+
+
+        [Parameter(Mandatory = $false, Position = 9)]
         [switch] $PassThru
     )
     Begin {
@@ -79,6 +88,10 @@ Function New-ProcessLog {
         if ($logExField2) {
             $LogObj | Add-Member -MemberType NoteProperty -Name step_note_02 -Value $logExField1 -Force
             $LogOutput = $LogOutput + "$($LogObj.step_note_02) | "
+        }
+
+        if ($WebhookDest -and $SendWebhook) {
+            Invoke-RestMethod -Method 'Post' -Uri $WebhookDest -Body $($LogObj | ConvertTo-Json -Compress -Depth 3)
         }
 
         $LogOutput = $LogOutput + "$($LogObj.message)"
