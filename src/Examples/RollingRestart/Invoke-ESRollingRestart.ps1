@@ -3,22 +3,14 @@ using namespace System.IO
 using namespace System.Collections.Generic
 
 
-# Maximum number of days back from the StartDate to inspect for indexes to migrate
-$MaxDays = 2
-$DateRange_Start = Get-Date "03/14/2021"
-$DateRange_End = $DateRange_Start.AddDays(-$MaxDays)
+# Timers to work into 1.5
+# 
+# Entire runtime
+# Time to complete each Stage
+# Time to complete each Node
+# Time to reboot/return online
 
-#Invoke-RestMethod $RequestUrl -Headers $Headers -Method $Method -SkipCertificateCheck
-$HotDiskThreshold=80
-$WarmDiskThreshold=90
-#HEAP size Threshold , it must be less than 80% 
-$HEAPThreshold=75
-
-# RequiredParamaters - Must be completed before executing
-$ElasticSearch_NodeCount = 4
-$Index_CloseTo = 1
-
-$ColumboServer = $null 
+# Show my last update (Cluster view / Node View)
 
 # Amount of time to pause inbetween Stage inner Do {} While/Until loops.
 $IterationDelay = 5
