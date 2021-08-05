@@ -124,6 +124,28 @@ $Stages.add([PSCustomObject]@{
     UserCommands = $End_UserCommands
 })
 
+Function Invoke-RunUserCommand {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $false, Position = 0)]
+        [object] $Stage,
+
+        [object] $Nodes
+    )
+    ForEach ($Node in $Nodes) {
+        if ($Stage.UserCommands) {
+            $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "Begin Step"
+            ForEach ($UserCommand in $Stage.UserCommands) {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
+                $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c $UserCommand} -ErrorAction SilentlyContinue
+                Write-Host $HostResult
+            }
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "End Step"
+        }
+    }
+}
+
 # Status to support aborting at the transition point from the exit of one process tage prior to beginning the next stage
 $AbortStatus = $false
 $DryRun = $false
@@ -258,14 +280,7 @@ ForEach ($Stage in $Stages) {
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logExField1 'End Step' -logMessage "Target Requirement Met"
 
             if ($Stage.UserCommands) {
-                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "Begin Step"
-                ForEach ($UserCommand in $Stage.UserCommands) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
-                    $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "$UserCommand"} -ErrorAction SilentlyContinue
-                    Write-Host $HostResult
-                }
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "End Step"
+                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
             }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
@@ -341,14 +356,7 @@ ForEach ($Stage in $Stages) {
             }
 
             if ($Stage.UserCommands) {
-                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logExField1 "Begin Step"
-                ForEach ($UserCommand in $Stage.UserCommands) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
-                    $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c $UserCommand} -ErrorAction SilentlyContinue
-                    Write-Host $HostResult
-                }
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logExField1 "End Step"
+                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
             }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
@@ -453,14 +461,7 @@ ForEach ($Stage in $Stages) {
                     }
                     
                     if ($Stage.UserCommands) {
-                        $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "Begin Step"
-                        ForEach ($UserCommand in $Stage.UserCommands) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
-                            $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "$UserCommand"} -ErrorAction SilentlyContinue
-                            Write-Host $HostResult
-                        }
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "End Step"
+                        Invoke-RunUserCommand -Stage $Stage -Nodes $Node
                     }
                     
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'Begin Step' -logExField1 "Node: $($Node.hostname)"
@@ -543,14 +544,7 @@ ForEach ($Stage in $Stages) {
             }
 
             if ($Stage.UserCommands) {
-                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "Begin Step"
-                ForEach ($UserCommand in $Stage.UserCommands) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
-                    $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "$UserCommand"} -ErrorAction SilentlyContinue
-                    Write-Host $HostResult
-                }
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "End Step"
+                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
             }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
