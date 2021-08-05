@@ -3,6 +3,15 @@ using namespace System.IO
 using namespace System.Collections.Generic
 
 
+# User driven command variables, where a user can inject OS commands in any of the stages.
+$Pre_UserCommands = [List[string]]::new()
+$Start_UserCommands = [List[string]]::new()
+$Running_UserCommands = [List[string]]::new()
+$Completed_UserCommands = [List[string]]::new()
+$End_UserCommands = [List[string]]::new()
+
+$Start_UserCommands.add('sudo yum update -y')
+
 # Timers to work into 1.5
 # 
 # Entire runtime
@@ -40,7 +49,6 @@ if ($RunAsServer) {
 }
 
 # Verify SSH key established
-
 #$(Invoke-Command -ScriptBlock {bash -c "eval `"`$(ssh-agent)`""})
 $(Invoke-Command -ScriptBlock {bash -c "ssh-add ~/.ssh/id_rsa"})
 
@@ -63,6 +71,7 @@ $Stages.add([PSCustomObject]@{
     RetryWait = 15
     Flush = $false
     ManualCheck = $true
+    UserCommands = $Pre_UserCommands
 })
 $Stages.add([PSCustomObject]@{
     Name = "Start"
@@ -75,6 +84,7 @@ $Stages.add([PSCustomObject]@{
     NodeDelayTimeout = 60
     Flush = $true
     ManualCheck = $false
+    UserCommands = $Start_UserCommands
 })
 $Stages.add([PSCustomObject]@{
     Name = "Running"
@@ -86,6 +96,7 @@ $Stages.add([PSCustomObject]@{
     RetryWait = 15
     Flush = $false
     ManualCheck = $false
+    UserCommands = $Running_UserCommands
 })
 $Stages.add([PSCustomObject]@{
     Name = "Completed"
@@ -98,6 +109,7 @@ $Stages.add([PSCustomObject]@{
     NodeDelayTimeout = 300
     Flush = $false
     ManualCheck = $false
+    UserCommands = $Completed_UserCommands
 })
 $Stages.add([PSCustomObject]@{
     Name = "End"
@@ -109,6 +121,7 @@ $Stages.add([PSCustomObject]@{
     RetryWait = 15
     Flush = $false
     ManualCheck = $false
+    UserCommands = $End_UserCommands
 })
 
 # Status to support aborting at the transition point from the exit of one process tage prior to beginning the next stage
@@ -183,7 +196,7 @@ ForEach ($Stage in $Stages) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Current: $CurrentEsRouting Target: $($Stage.Routing)"
     }
     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Target: $($Stage.Routing)" -logExField1 'End'
-    
+
     # Status to support validating transition to the next stage
     $TransitionStage = $false
     if ($Stage.name -Like "Pre") {
@@ -244,6 +257,16 @@ ForEach ($Stage in $Stages) {
             }
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logExField1 'End Step' -logMessage "Target Requirement Met"
 
+            if ($Stage.UserCommands) {
+                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "Begin Step"
+                ForEach ($UserCommand in $Stage.UserCommands) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
+                    $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "$UserCommand"} -ErrorAction SilentlyContinue
+                    Write-Host $HostResult
+                }
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "End Step"
+            }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
@@ -317,6 +340,16 @@ ForEach ($Stage in $Stages) {
                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "End Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
             }
 
+            if ($Stage.UserCommands) {
+                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "Begin Step"
+                ForEach ($UserCommand in $Stage.UserCommands) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
+                    $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "$UserCommand"} -ErrorAction SilentlyContinue
+                    Write-Host $HostResult
+                }
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "End Step"
+            }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
@@ -419,6 +452,16 @@ ForEach ($Stage in $Stages) {
                         Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
                     }
                     
+                    if ($Stage.UserCommands) {
+                        $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "Begin Step"
+                        ForEach ($UserCommand in $Stage.UserCommands) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
+                            $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "$UserCommand"} -ErrorAction SilentlyContinue
+                            Write-Host $HostResult
+                        }
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "End Step"
+                    }
                     
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'Begin Step' -logExField1 "Node: $($Node.hostname)"
                     if ($Stage.ManualCheck -eq $true -or $AlertCheck -eq $true) {
@@ -497,6 +540,17 @@ ForEach ($Stage in $Stages) {
                     New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Unable to update Node Timeout Delay"
                 }
                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "End Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
+            }
+
+            if ($Stage.UserCommands) {
+                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "Begin Step"
+                ForEach ($UserCommand in $Stage.UserCommands) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
+                    $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "$UserCommand"} -ErrorAction SilentlyContinue
+                    Write-Host $HostResult
+                }
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField1 "End Step"
             }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
