@@ -52,6 +52,7 @@ if ($RunAsServer) {
 #$(Invoke-Command -ScriptBlock {bash -c "eval `"`$(ssh-agent)`""})
 $(Invoke-Command -ScriptBlock {bash -c "ssh-add ~/.ssh/id_rsa"})
 
+$SSHConfigStatus = Add-LrHostSSHConfig -Path '/home/logrhythm/.ssh/config'
 
 # List of index that are closed as part of auto rolling restart to be re-opened in the Completed stage
 $ClosedHotIndexes = [List[object]]::new()
@@ -565,3 +566,4 @@ ForEach ($Stage in $Stages) {
     }
     New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Rolling Restart' -logMessage "Stage: $($Stage.Name)" -logExField1 "End Stage"
 }
+Remove-LrHostSSHConfig -Path '/home/logrhythm/.ssh/config' -Action $SSHConfigStatus.Action
