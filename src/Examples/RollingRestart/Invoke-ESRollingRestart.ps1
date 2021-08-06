@@ -10,7 +10,7 @@ $Running_UserCommands = [List[string]]::new()
 $Completed_UserCommands = [List[string]]::new()
 $End_UserCommands = [List[string]]::new()
 
-$Start_UserCommands.add('sudo yum update -y')
+#$Start_UserCommands.add('sudo yum update -y')
 
 # Timers to work into 1.5
 # 
