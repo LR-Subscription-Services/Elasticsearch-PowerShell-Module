@@ -54,7 +54,7 @@ Function Add-LrHostSSHConfig {
                 write-host "SSH Configuration Policy has not been set."
             }
         }
-        bash -c "chmod 600 $Path"
+        Invoke-Command -ScriptBlock {bash -c "chmod 600 $Path"}
         return $Output 
     }
 }
