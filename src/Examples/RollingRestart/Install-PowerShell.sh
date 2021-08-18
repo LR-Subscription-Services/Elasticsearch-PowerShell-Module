@@ -14,6 +14,9 @@ which pwsh
 if [ $? -eq 1 ]; then
     echo 'Microsoft PowerShell Core is not currently installed.  Running: sudo yum install -y powershell.'
     sudo yum install -y powershell
+else 
+    echo 'Microsoft PowerShell Core is currently installed.  Running: sudo yum update -y powershell.'
+    sudo yum update -y powershell
 fi
 
 # Update SSHD Config to support PowerShell SSH SubSystem to support PowerShell Remote Cmd over SSH
