@@ -449,9 +449,14 @@ ForEach ($Stage in $Stages) {
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Begin monitoring host online/offline status"
                     do {
                         $Count += 1
-                        $CurrentUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime -since} -ErrorAction SilentlyContinue
-
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Current Uptime: $($CurrentUptime)"
+                        $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
+                        if ($HostOnline) {
+                            $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                            $CurrentUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime -since} -ErrorAction SilentlyContinue
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Current Uptime: $($CurrentUptime)"
+                        } else {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Node unreachable."
+                        }                        
                         Start-Sleep $($Stage.RetryWait)
                     } until ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime)) -or ($Count -ge $($Stage.MaxRetry)))
                     
