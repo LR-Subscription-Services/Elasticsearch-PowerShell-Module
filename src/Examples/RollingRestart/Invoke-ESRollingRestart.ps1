@@ -93,8 +93,8 @@ $Stages.add([PSCustomObject]@{
     SSH = $null
     IndexSize = 20
     Routing = "Primaries"
-    MaxRetry = 40
-    RetryWait = 15
+    MaxRetry = 90
+    RetryWait = 30
     Flush = $false
     ManualCheck = $false
     UserCommands = $Running_UserCommands
@@ -431,23 +431,32 @@ ForEach ($Stage in $Stages) {
                         $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {get-host}
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Command: get-host" -logMessage "PSComputerName: $($HostResult.PSComputerName)   RunSpace: $($HostResult.Name)"
                     } else {
-                        $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "sudo shutdown -r now"} -ErrorAction SilentlyContinue
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: restart-computer"
-                        Start-Sleep 10
+                        Try {
+                            $BaseUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime -since}
+                        } Catch {
+                            write-host $_
+                        }
+                        
+                        if ($null -ne $BaseUptime) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Current Uptime: $($BaseUptime)"
+                            $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "sudo shutdown -r now"} -ErrorAction SilentlyContinue
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: restart-computer"
+                            Start-Sleep 10
+                        }
                     }
                     #If ($NodeSession.GetStatus here)
                     $Count = 0
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Begin monitoring host online/offline status"
                     do {
                         $Count += 1
-                        $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
-                        
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Status: $($HostOnline)"
+                        $CurrentUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime -since} -ErrorAction SilentlyContinue
+
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Current Uptime: $($CurrentUptime)"
                         Start-Sleep $($Stage.RetryWait)
-                    } until ($HostOnline = $true -or $Count -ge $($Stage.MaxRetry))
+                    } until ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime)) -or ($Count -ge $($Stage.MaxRetry)))
                     
                     if ($Count -ge $($Stage.MaxRetry)) {
-                        New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Test-Connection Max retries reached"
+                        New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Max retries reached"
                         $AlertCheck -eq $true
                     } else {
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Beginning recovery"
