@@ -452,8 +452,12 @@ ForEach ($Stage in $Stages) {
                         $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
                         if ($HostOnline) {
                             $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-                            $CurrentUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime} -ErrorAction SilentlyContinue
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Current Uptime: $($CurrentUptime.tostring())"
+                            if ($NodeSession.Availability -like "Available") {
+                                $CurrentUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime} -ErrorAction SilentlyContinue
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Current Uptime: $($CurrentUptime.tostring())"
+                            } else {
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Node reachable.  Unable to authenticate."    
+                            }
                         } else {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Node unreachable."
                         }
