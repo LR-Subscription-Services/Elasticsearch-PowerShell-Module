@@ -85,9 +85,9 @@ Function Invoke-MonitorEsRecovery {
                 $ESRecovery = Get-EsRecovery | Where-Object -Property 'stage' -NotLike 'done'
                 if ($ESRecovery) {
                     $CurrentRecovery = $[PSCustomObject]@{
-                        File = $ESRecovery.files_percent.replace('%','')
-                        Bytes = $ESRecovery.bytes_percent.replace('%','')
-                        Trans = $ESRecovery.translog_ops_percent.replace('%','')
+                        File = $ESRecovery.files_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
+                        Bytes = $ESRecovery.bytes_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
+                        Trans = $ESRecovery.translog_ops_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
                     }
                 }
             }
