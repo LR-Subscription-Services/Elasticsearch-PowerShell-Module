@@ -94,7 +94,7 @@ $Stages.add([PSCustomObject]@{
     IndexSize = 20
     Routing = "Primaries"
     MaxRetry = 90
-    RetryWait = 30
+    RetryWait = 5
     Flush = $false
     ManualCheck = $false
     UserCommands = $Running_UserCommands
@@ -441,10 +441,10 @@ ForEach ($Stage in $Stages) {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Current Uptime: $($BaseUptime.tostring())"
                             $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "sudo shutdown -r now"} -ErrorAction SilentlyContinue
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: restart-computer"
-                            Start-Sleep 10
+                            Start-Sleep 30
                         }
                     }
-                    #If ($NodeSession.GetStatus here)
+
                     $Count = 0
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Begin monitoring host online/offline status"
                     do {
