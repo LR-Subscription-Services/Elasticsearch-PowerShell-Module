@@ -35,6 +35,8 @@ Function Invoke-MonitorEsRecovery {
         $RetryCounter = 0
         $LastUnassigned = 0
         $CurrentUnassigned = 0
+
+        $LastRecovery = $null
     }
 
     Process {
@@ -48,6 +50,12 @@ Function Invoke-MonitorEsRecovery {
 
             # Retrieve cluster health
             $LastUnassigned = $($ClusterHealth.unassigned_shards)
+
+            # Capture previous Recovery counters if they are present as a variable
+            if ($null -ne $CurrentRecovery) {
+                $LastRecovery = $CurrentRecovery
+            }
+
             $ClusterHealth = Get-EsClusterHealth
             $es_ClusterStatus = $($TC.ToTitleCase($($ClusterHealth.status)))
 
@@ -71,15 +79,37 @@ Function Invoke-MonitorEsRecovery {
 
             # Update current Unassigned Shards details
             $CurrentUnassigned = $($ClusterHealth.unassigned_shards)
-            if ($CurrentUnassigned -ne $LastUnassigned) {
-                $RetryMax += 2
-                New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
-            } else {
-                if ($RetryCounter -eq 1) {
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
+
+            # If we have initializing shards, begin tracking Elasticsearch Recovery
+            if ($ClusterHealth.initializing_shards -gt 0) {
+                $ESRecovery = Get-EsRecovery | Where-Object -Property 'stage' -NotLike 'done'
+                if ($ESRecovery) {
+                    $CurrentRecovery = $[PSCustomObject]@{
+                        File = $ESRecovery.files_percent.replace('%','')
+                        Bytes = $ESRecovery.bytes_percent.replace('%','')
+                        Trans = $ESRecovery.translog_ops_percent.replace('%','')
+                    }
+                }
+            }
+
+            if ($null -ne $LastRecovery) {
+                $FileDelta = $CurrentRecovery.File - $LastRecovery.File
+                $BytesDelta = $CurrentRecovery.File - $LastRecovery.File
+                $TransDelta = $CurrentRecovery.File - $LastRecovery.File
+
+                New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 'File Recovery    ' -logMessage "Current: $($CurrentRecovery.File)%  Last: $($LastRecovery.File)%  Progression:$FileDelta%"
+                New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 'Bytes Recovery   ' -logMessage "Current: $($CurrentRecovery.Bytes)%  Last: $($LastRecovery.Bytes)%  Progression:$BytesDelta%"
+                New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 'Translog Recovery' -logMessage "Current: $($CurrentRecovery.Trans)%  Last: $($LastRecovery.Trans)%  Progression:$TransDelta%"
+                if ($CurrentRecovery -ne $LastRecovery) {
+                    $RetryMax += 2
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
                 } else {
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
-                }  
+                    if ($RetryCounter -eq 1) {
+                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Starting   ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
+                    } else {
+                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled    ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
+                    }  
+                }
             }
             $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average) 
         } until (($RetryCounter -ge $RetryMax) -or ($es_ClusterStatus -like "green") -or (($InitHistoryStats.count -eq $MaxInitConsecZero) -and ($InitHistoryStats.sum -eq 0)))
