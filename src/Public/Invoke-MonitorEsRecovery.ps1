@@ -88,7 +88,7 @@ Function Invoke-MonitorEsRecovery {
                     ForEach ($Index in $($ESRecovery | Sort-Object 'index' -Unique | Select-Object -ExpandProperty 'index')) {
                         $IndexRecovery = $ESRecovery | Where-Object -Property 'stage' -NotLike 'done' | Where-Object -Property 'index' -like $Index
                         if ($IndexRecovery) {
-                            $IndexRecoveryAggregate = $[PSCustomObject]@{
+                            $IndexRecoveryAggregate = [PSCustomObject]@{
                                 Index = $Index
                                 File = $IndexRecovery.files_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
                                 Bytes = $IndexRecovery.bytes_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
