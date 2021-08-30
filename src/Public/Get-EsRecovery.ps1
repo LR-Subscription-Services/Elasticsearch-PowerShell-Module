@@ -68,7 +68,7 @@ Function Get-EsRecovery {
         if ($Index) {
             $RequestUrl = $BaseUrl + "/" + $Index +"/_recovery?format=json"
         } else {
-            $RequestUrl = $BaseUrl + "/_recovery?format=json"
+            $RequestUrl = $BaseUrl + "/_cat/recovery?format=json"
         }
 
         Try {
