@@ -17,32 +17,37 @@ Function New-ProcessLog {
         [Parameter(Mandatory = $false, Position = 3)]
         [string] $esHealth,
 
+        [Parameter(Mandatory = $false, Position = 4)]
+        [string] $Node,
 
-        [Parameter(Mandatory = $true, Position = 4)]
+        [Parameter(Mandatory = $false, Position = 5)]
+        [string] $Index,
+
+        [Parameter(Mandatory = $true, Position = 6)]
         [string] $logMessage,
 
 
-        [Parameter(Mandatory = $false, Position = 5)]
+        [Parameter(Mandatory = $false, Position = 7)]
         [string] $logExField1,
 
 
-        [Parameter(Mandatory = $false, Position = 6)]
+        [Parameter(Mandatory = $false, Position = 8)]
         [string] $logExField2,
 
 
-        [Parameter(Mandatory = $false, Position = 7)]
+        [Parameter(Mandatory = $false, Position = 9)]
         $LogFile,
 
 
-        [Parameter(Mandatory = $false, Position = 8)]
+        [Parameter(Mandatory = $false, Position = 10)]
         [string] $WebhookDest,
 
         
-        [Parameter(Mandatory = $false, Position = 9)]
+        [Parameter(Mandatory = $false, Position = 11)]
         [switch] $SendWebhook,
 
 
-        [Parameter(Mandatory = $false, Position = 9)]
+        [Parameter(Mandatory = $false, Position = 12)]
         [switch] $PassThru
     )
     Begin {
@@ -96,6 +101,27 @@ Function New-ProcessLog {
         }
 
         $LogOutput = "$($LogObj.timestamp) | $($LogObj.severity) | Health: $_logHealth | Stage: $_logStage | Step: $($LogObj.step) | "
+
+        if ($Node) {
+            $LogObj | Add-Member -MemberType NoteProperty -Name node -Value $Node -Force
+            $LogOutput = $LogOutput + "Node: $($Node) | "
+        }
+
+        if ($Index) {
+            $LogObj | Add-Member -MemberType NoteProperty -Name index -Value $Index -Force
+            if ($Index -like "emdb_*") {
+                switch -Regex ($Index) {
+                    "emdb_location_.*" {$_index = "emdb_location"}
+                    "emdb_list_items_matches_.*" {$_index = "emdb_list_items_matches"}
+                    "emdb_ad_groups_.*" {$_index = "emdb_ad_groups"}
+                    "emdb_acl_msg_source_.*" {$_index = "emdb_acl_msg_source"}
+                    default {$_index = $Index}
+                }
+            } else {
+                $_index = $Index
+            }
+            $LogOutput = $LogOutput + "Index: $($_index) | "
+        }
 
         if ($logExField1) {
             $LogObj | Add-Member -MemberType NoteProperty -Name step_note_01 -Value $logExField1 -Force
