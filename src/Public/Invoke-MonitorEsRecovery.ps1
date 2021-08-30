@@ -35,7 +35,7 @@ Function Invoke-MonitorEsRecovery {
         $RetryCounter = 0
         $LastUnassigned = 0
         $CurrentUnassigned = 0
-        
+
         $RecoveryList = $null
         $LastRecovery = [List[object]]::new()
     }
@@ -110,21 +110,21 @@ Function Invoke-MonitorEsRecovery {
                     $FileDelta = $Recovery.File - $LastRecovStats.File
                     $BytesDelta = $Recovery.Bytes - $LastRecovStats.Bytes
                     $TransDelta = $Recovery.Trans - $LastRecovStats.Trans
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "File Recovery - Current: $($Recovery.File)%  Last: $($LastRecovStats.File)%  Progression:$FileDelta%"
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "Bytes Recovery - Current: $($Recovery.Bytes)%  Last: $($LastRecovStats.Bytes)%  Progression:$BytesDelta%"
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "Translog Recovery - Current: $($Recovery.Trans)%  Last: $($LastRecovStats.Trans)%  Progression:$TransDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "File Recovery - Current: $($Recovery.File)%  Last: $($LastRecovStats.File)%  Progression:$FileDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "Bytes Recovery - Current: $($Recovery.Bytes)%  Last: $($LastRecovStats.Bytes)%  Progression:$BytesDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "Translog Recovery - Current: $($Recovery.Trans)%  Last: $($LastRecovStats.Trans)%  Progression:$TransDelta%"
                 }
                 
 
                 
                 if ($RecoveryList -ne $LastRecovery) {
                     $RetryMax += 2
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progress ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
                 } else {
                     if ($RetryCounter -eq 1) {
-                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Starting   ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
+                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
                     } else {
-                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled    ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
+                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
                     }  
                 }
             }
