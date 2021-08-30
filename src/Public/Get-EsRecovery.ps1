@@ -47,7 +47,9 @@ Function Get-EsRecovery {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $false, Position = 0)]
-        [string] $Index
+        [string] $Index,
+
+        [Switch] $ActiveOnly
     )
     Begin {
         $Headers = [Dictionary[string,string]]::new()
@@ -68,7 +70,12 @@ Function Get-EsRecovery {
         if ($Index) {
             $RequestUrl = $BaseUrl + "/" + $Index +"/_recovery?format=json"
         } else {
-            $RequestUrl = $BaseUrl + "/_cat/recovery?format=json"
+            if ($ActiveOnly) {
+                $RequestUrl = $BaseUrl + "/_cat/recovery?format=json?active_only=true"
+            } else {
+                $RequestUrl = $BaseUrl + "/_cat/recovery?format=json"
+            }
+            
         }
 
         Try {
