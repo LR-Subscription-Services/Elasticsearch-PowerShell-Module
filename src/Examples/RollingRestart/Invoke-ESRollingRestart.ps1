@@ -443,25 +443,31 @@ ForEach ($Stage in $Stages) {
 
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -Node $($Node.hostname) -logMessage "Command: restart-computer"
                             
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Begin monitoring host online/offline status." -logExField2 "Target: Offline"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Begin monitoring host online/offline status." 
                             Do {
                                 $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Status: $($HostOnline)" -logExField2 "Target: Offline"
+                                if ($HostOnline) {
+                                    $HostOnlineStatus = "Online"
+                                } else {
+                                    $HostOnlineStatus = "Offline"
+                                }
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Status: $HostOnlineStatus"
                                 Start-Sleep $($Stage.RetryWait / 2)
                             } Until (!$HostOnline)
 
                             if (!$HostOnline) {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Target requirement met.  Node unreachable." -logExField2 "Target: Offline"
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Target requirement met.  Node unreachable." 
                             }
                         }
                     }
 
                     $Count = 0
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Begin monitoring host online/offline status." -logExField2 "Target: Online"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Begin monitoring host online/offline status." 
                     do {
                         $Count += 1
                         $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
                         if ($HostOnline) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Status: Online"
                             $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
                             if ($NodeSession.Availability -like "Available") {
                                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Node reachable with SSH authentication."
@@ -475,7 +481,7 @@ ForEach ($Stage in $Stages) {
                                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Node reachable.  Unable to authenticate."    
                             }
                         } else {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Node unreachable." -logExField2 "Target: Online"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Status: Offline"
                         }
                         Start-Sleep $($Stage.RetryWait)
                     } until ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime)) -or ($Count -ge $($Stage.MaxRetry)))
