@@ -103,7 +103,7 @@ Function New-ProcessLog {
         }
 
         if ($logExField2) {
-            $LogObj | Add-Member -MemberType NoteProperty -Name step_note_02 -Value $logExField1 -Force
+            $LogObj | Add-Member -MemberType NoteProperty -Name step_note_02 -Value $logExField2 -Force
             $LogOutput = $LogOutput + "$($LogObj.step_note_02) | "
         }
 
