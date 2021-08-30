@@ -90,6 +90,7 @@ Function Invoke-MonitorEsRecovery {
                         if ($IndexRecovery) {
                             $IndexRecoveryAggregate = [PSCustomObject]@{
                                 Index = $Index
+                                Shards = $IndexRecovery.count
                                 File = $IndexRecovery.files_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
                                 Bytes = $IndexRecovery.bytes_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
                                 Trans = $IndexRecovery.translog_ops_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
@@ -107,9 +108,9 @@ Function Invoke-MonitorEsRecovery {
                     $FileDelta = $Recovery.File - $LastRecovery.File
                     $BytesDelta = $Recovery.File - $LastRecovery.File
                     $TransDelta = $Recovery.File - $LastRecovery.File
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 "Index: $($Index)" -logMessage "File Recovery - Current: $($Recovery.File)%  Last: $($LastRecovery.File)%  Progression:$FileDelta%"
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 "Index: $($Index)" -logMessage "Bytes Recovery - Current: $($Recovery.Bytes)%  Last: $($LastRecovery.Bytes)%  Progression:$BytesDelta%"
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 "Index: $($Index)" -logMessage "Translog Recovery - Current: $($Recovery.Trans)%  Last: $($LastRecovery.Trans)%  Progression:$TransDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "File Recovery - Current: $($Recovery.File)%  Last: $($LastRecovery.File)%  Progression:$FileDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "Bytes Recovery - Current: $($Recovery.Bytes)%  Last: $($LastRecovery.Bytes)%  Progression:$BytesDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "Translog Recovery - Current: $($Recovery.Trans)%  Last: $($LastRecovery.Trans)%  Progression:$TransDelta%"
                 }
                 
 
