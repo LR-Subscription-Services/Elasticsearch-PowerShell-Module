@@ -111,10 +111,10 @@ Function New-ProcessLog {
             $LogObj | Add-Member -MemberType NoteProperty -Name index -Value $Index -Force
             if ($Index -like "emdb_*") {
                 switch -Regex ($Index) {
-                    "emdb_location_.*" {$_index = "emdb_location"}
-                    "emdb_list_items_matches_.*" {$_index = "emdb_list_items_matches"}
-                    "emdb_ad_groups_.*" {$_index = "emdb_ad_groups"}
-                    "emdb_acl_msg_source_.*" {$_index = "emdb_acl_msg_source"}
+                    "emdb_location_.*" {$_index = "emdb_location  "}
+                    "emdb_list.*" {$_index = "emdb_list_items"}
+                    "emdb_ad_groups_.*" {$_index = "emdb_ad_groups "}
+                    "emdb_acl_msg_source_.*" {$_index= "emdb_acl_msgsrc"}
                     default {$_index = $Index}
                 }
             } else {
