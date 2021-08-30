@@ -35,8 +35,9 @@ Function Invoke-MonitorEsRecovery {
         $RetryCounter = 0
         $LastUnassigned = 0
         $CurrentUnassigned = 0
-
-        $LastRecovery = $RecoveryList = [List[object]]::new()
+        
+        $RecoveryList = $null
+        $LastRecovery = [List[object]]::new()
     }
 
     Process {
@@ -52,8 +53,8 @@ Function Invoke-MonitorEsRecovery {
             $LastUnassigned = $($ClusterHealth.unassigned_shards)
 
             # Capture previous Recovery counters if they are present as a variable
-            if ($null -ne $CurrentRecovery) {
-                $LastRecovery = $CurrentRecovery
+            if ($null -ne $RecoveryList) {
+                $LastRecovery = $RecoveryList
             }
 
             $ClusterHealth = Get-EsClusterHealth
