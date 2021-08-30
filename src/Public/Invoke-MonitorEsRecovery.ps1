@@ -42,13 +42,6 @@ Function Invoke-MonitorEsRecovery {
 
     Process {
         Do {
-            # Add sleep to this process for every iteration after the first.
-            if ($RetryCounter -gt 0) {
-                start-sleep $RetrySleep
-            }
-            # Increment the loop counter
-            $RetryCounter += 1
-
             # Retrieve cluster health
             $LastUnassigned = $($ClusterHealth.unassigned_shards)
 
@@ -108,18 +101,35 @@ Function Invoke-MonitorEsRecovery {
                 ForEach ($Recovery in $RecoveryList) {
                     New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "File: $($Recovery.File)%  Bytes: $($Recovery.Bytes)%  Translog: $($Recovery.Trans)%"
                 }
-                
                 if ($RecoveryList -ne $LastRecovery) {
                     $RetryMax += 2
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progress ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
-                } else {
-                    if ($RetryCounter -eq 1) {
-                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
+                }
+                
+                if (($RetryCounter % 5) -eq 0) {
+                    if ($RecoveryList -ne $LastRecovery) {
+                        $RetryMax += 2
+                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progress ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
                     } else {
-                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
-                    }  
+                        if ($RetryCounter -eq 1) {
+                            New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
+                        } else {
+                            New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
+                        }  
+                    }
+                    # Add sleep to this process for every iteration after the first.
+                    if ($RetryCounter -gt 0) {
+                        start-sleep $RetrySleep
+                    }
+                } else {
+                    # Add sleep to this process for every iteration after the first.
+                    if ($RetryCounter -gt 0) {
+                        start-sleep -Seconds [int32]$($RetrySleep / 2)
+                    }
                 }
             }
+
+            # Increment the loop counter
+            $RetryCounter += 1
             $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average) 
         } until (($RetryCounter -ge $RetryMax) -or ($es_ClusterStatus -like "green") -or (($InitHistoryStats.count -eq $MaxInitConsecZero) -and ($InitHistoryStats.sum -eq 0)))
     }
