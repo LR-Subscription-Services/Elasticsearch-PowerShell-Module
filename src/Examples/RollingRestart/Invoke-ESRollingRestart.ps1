@@ -62,7 +62,7 @@ $ClosedHotIndexes = [List[object]]::new()
 
 $Stages = [List[object]]::new()
 $Stages.add([PSCustomObject]@{
-    Name = "Pre"
+    Name = "Check"
     ClusterStatus = "Green"
     ClusterHosts = $(Get-LrClusterHosts)
     SSH = "Verify"
@@ -75,7 +75,7 @@ $Stages.add([PSCustomObject]@{
     UserCommands = $Pre_UserCommands
 })
 $Stages.add([PSCustomObject]@{
-    Name = "Start"
+    Name = "Init"
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
@@ -100,7 +100,7 @@ $Stages.add([PSCustomObject]@{
     UserCommands = $Running_UserCommands
 })
 $Stages.add([PSCustomObject]@{
-    Name = "Completed"
+    Name = "Verify"
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
@@ -113,7 +113,7 @@ $Stages.add([PSCustomObject]@{
     UserCommands = $Completed_UserCommands
 })
 $Stages.add([PSCustomObject]@{
-    Name = "End"
+    Name = "Complete"
     ClusterStatus = "Green"
     SSH = "Verify"
     IndexSize = -1

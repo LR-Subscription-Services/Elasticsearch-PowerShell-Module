@@ -78,7 +78,24 @@ Function New-ProcessLog {
             step = $LogStep
             message = $logMessage
         }
-        $LogOutput = "$($LogObj.timestamp) | $($LogObj.severity) | Health: $($LogObj.health) | Stage: $($LogObj.stage) | Step: $($LogObj.step) | "
+
+        Switch ($($LogObj.health)) {
+            "green"  {$_logHealth = 'Green '}
+            "yellow" {$_logHealth = 'Yellow'}
+            "red"    {$_logHealth = 'Red   '}
+            default {$_logHealth = $($LogObj.health)}
+        }
+
+        Switch ($($LogObj.stage)) {
+            "Check"    {$_logStage = 'Check   '}
+            "Init"     {$_logStage = 'Init    '}
+            "Running"  {$_logStage = 'Running '}
+            "Verify"   {$_logStage = 'Verify  '}
+            "Complete" {$_logStage = 'Complete'}
+            default {$_logStage = $($LogObj.stage)}
+        }
+
+        $LogOutput = "$($LogObj.timestamp) | $($LogObj.severity) | Health: $_logHealth | Stage: $_logStage | Step: $($LogObj.step) | "
 
         if ($logExField1) {
             $LogObj | Add-Member -MemberType NoteProperty -Name step_note_01 -Value $logExField1 -Force
