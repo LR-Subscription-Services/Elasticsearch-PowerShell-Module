@@ -106,16 +106,8 @@ Function Invoke-MonitorEsRecovery {
 
             if ($null -ne $LastRecovery) {
                 ForEach ($Recovery in $RecoveryList) {
-                    $LastRecovStats = $LastRecovery | Where-Object -Property 'index' -like $Recovery.Index
-                    $FileDelta = $Recovery.File - $LastRecovStats.File
-                    $BytesDelta = $Recovery.Bytes - $LastRecovStats.Bytes
-                    $TransDelta = $Recovery.Trans - $LastRecovStats.Trans
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "File Recovery - Current: $($Recovery.File)%  Last: $($LastRecovStats.File)%  Progression:$FileDelta%"
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "Bytes Recovery - Current: $($Recovery.Bytes)%  Last: $($LastRecovStats.Bytes)%  Progression:$BytesDelta%"
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "Translog Recovery - Current: $($Recovery.Trans)%  Last: $($LastRecovStats.Trans)%  Progression:$TransDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "File: $($Recovery.File)%  Bytes: $($Recovery.Bytes)%  Translog: $($Recovery.Trans)%"
                 }
-                
-
                 
                 if ($RecoveryList -ne $LastRecovery) {
                     $RetryMax += 2
