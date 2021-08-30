@@ -36,7 +36,7 @@ Function Invoke-MonitorEsRecovery {
         $LastUnassigned = 0
         $CurrentUnassigned = 0
 
-        $LastRecovery = $null
+        $LastRecovery = $RecoveryList = [List[object]]::new()
     }
 
     Process {
@@ -82,25 +82,39 @@ Function Invoke-MonitorEsRecovery {
 
             # If we have initializing shards, begin tracking Elasticsearch Recovery
             if ($ClusterHealth.initializing_shards -gt 0) {
-                $ESRecovery = Get-EsRecovery | Where-Object -Property 'stage' -NotLike 'done'
+                $ESRecovery = Get-EsRecovery | Sort-Object index
                 if ($ESRecovery) {
-                    $CurrentRecovery = $[PSCustomObject]@{
-                        File = $ESRecovery.files_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
-                        Bytes = $ESRecovery.bytes_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
-                        Trans = $ESRecovery.translog_ops_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
+                    $RecoveryList = [List[object]]::new()
+                    ForEach ($Index in $($ESRecovery | Sort-Object 'index' -Unique | Select-Object -ExpandProperty 'index')) {
+                        $IndexRecovery = $ESRecovery | Where-Object -Property 'stage' -NotLike 'done' | Where-Object -Property 'index' -like $Index
+                        if ($IndexRecovery) {
+                            $IndexRecoveryAggregate = $[PSCustomObject]@{
+                                Index = $Index
+                                File = $IndexRecovery.files_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
+                                Bytes = $IndexRecovery.bytes_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
+                                Trans = $IndexRecovery.translog_ops_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
+                            }
+                            $RecoveryList.add($IndexRecoveryAggregate)
+                        } else {
+                            continue
+                        }
                     }
                 }
             }
 
             if ($null -ne $LastRecovery) {
-                $FileDelta = $CurrentRecovery.File - $LastRecovery.File
-                $BytesDelta = $CurrentRecovery.File - $LastRecovery.File
-                $TransDelta = $CurrentRecovery.File - $LastRecovery.File
+                ForEach ($Recovery in $RecoveryList) {
+                    $FileDelta = $Recovery.File - $LastRecovery.File
+                    $BytesDelta = $Recovery.File - $LastRecovery.File
+                    $TransDelta = $Recovery.File - $LastRecovery.File
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 "Index: $($Index)" -logMessage "File Recovery - Current: $($Recovery.File)%  Last: $($LastRecovery.File)%  Progression:$FileDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 "Index: $($Index)" -logMessage "Bytes Recovery - Current: $($Recovery.Bytes)%  Last: $($LastRecovery.Bytes)%  Progression:$BytesDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 "Index: $($Index)" -logMessage "Translog Recovery - Current: $($Recovery.Trans)%  Last: $($LastRecovery.Trans)%  Progression:$TransDelta%"
+                }
+                
 
-                New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 'File Recovery    ' -logMessage "Current: $($CurrentRecovery.File)%  Last: $($LastRecovery.File)%  Progression:$FileDelta%"
-                New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 'Bytes Recovery   ' -logMessage "Current: $($CurrentRecovery.Bytes)%  Last: $($LastRecovery.Bytes)%  Progression:$BytesDelta%"
-                New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logExField2 'Translog Recovery' -logMessage "Current: $($CurrentRecovery.Trans)%  Last: $($LastRecovery.Trans)%  Progression:$TransDelta%"
-                if ($CurrentRecovery -ne $LastRecovery) {
+                
+                if ($RecoveryList-ne $LastRecovery) {
                     $RetryMax += 2
                     New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
                 } else {
