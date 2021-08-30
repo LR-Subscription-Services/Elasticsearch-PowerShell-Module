@@ -440,23 +440,24 @@ ForEach ($Stage in $Stages) {
                         if ($null -ne $BaseUptime) {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Current Uptime: $($BaseUptime.tostring())"
                             $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "sudo shutdown -r now"} -ErrorAction SilentlyContinue
+
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: restart-computer"
                             
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logExField2 "Target: Offline" -logMessage "Begin monitoring host online/offline status."
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Begin monitoring host online/offline status." -logExField2 "Target: Offline"
                             Do {
                                 $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Status: $($HostOnline)"
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Status: $($HostOnline)" -logExField2 "Target: Offline"
                                 Start-Sleep $($Stage.RetryWait / 2)
                             } Until (!$HostOnline)
 
                             if (!$HostOnline) {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logExField2 "Target: Offline" -logMessage "Target requirement met.  Node unreachable."
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Target requirement met.  Node unreachable." -logExField2 "Target: Offline"
                             }
                         }
                     }
 
                     $Count = 0
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logExField2 "Target: Online" -logMessage "Begin monitoring host online/offline status."
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Begin monitoring host online/offline status." -logExField2 "Target: Online"
                     do {
                         $Count += 1
                         $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
@@ -474,7 +475,7 @@ ForEach ($Stage in $Stages) {
                                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Node reachable.  Unable to authenticate."    
                             }
                         } else {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logExField2 "Target: Online" -logMessage "Node unreachable."
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Node unreachable." -logExField2 "Target: Online"
                         }
                         Start-Sleep $($Stage.RetryWait)
                     } until ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime)) -or ($Count -ge $($Stage.MaxRetry)))
