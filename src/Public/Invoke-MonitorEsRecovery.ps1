@@ -105,17 +105,18 @@ Function Invoke-MonitorEsRecovery {
 
             if ($null -ne $LastRecovery) {
                 ForEach ($Recovery in $RecoveryList) {
-                    $FileDelta = $Recovery.File - $LastRecovery.File
-                    $BytesDelta = $Recovery.File - $LastRecovery.File
-                    $TransDelta = $Recovery.File - $LastRecovery.File
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "File Recovery - Current: $($Recovery.File)%  Last: $($LastRecovery.File)%  Progression:$FileDelta%"
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "Bytes Recovery - Current: $($Recovery.Bytes)%  Last: $($LastRecovery.Bytes)%  Progression:$BytesDelta%"
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "Translog Recovery - Current: $($Recovery.Trans)%  Last: $($LastRecovery.Trans)%  Progression:$TransDelta%"
+                    $LastRecovStats = $LastRecovery | Where-Object -Property 'index' -like $Recovery.Index
+                    $FileDelta = $Recovery.File - $LastRecovStats.File
+                    $BytesDelta = $Recovery.Bytes - $LastRecovStats.Bytes
+                    $TransDelta = $Recovery.Trans - $LastRecovStats.Trans
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "File Recovery - Current: $($Recovery.File)%  Last: $($LastRecovStats.File)%  Progression:$FileDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "Bytes Recovery - Current: $($Recovery.Bytes)%  Last: $($LastRecovStats.Bytes)%  Progression:$BytesDelta%"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progression' -logExField1 "Index: $($Recovery.Index)" -logExField2 "Shards: $($Recovery.Shards)" -logMessage "Translog Recovery - Current: $($Recovery.Trans)%  Last: $($LastRecovStats.Trans)%  Progression:$TransDelta%"
                 }
                 
 
                 
-                if ($RecoveryList-ne $LastRecovery) {
+                if ($RecoveryList -ne $LastRecovery) {
                     $RetryMax += 2
                     New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)  Attempt: $RetryCounter  Remaining: $($RetryMax - $RetryCounter)"
                 } else {
