@@ -444,9 +444,9 @@ ForEach ($Stage in $Stages) {
                             
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logExField2 "Target: Offline" -logMessage "Begin monitoring host online/offline status."
                             Do {
-                                Start-Sleep $($Stage.RetryWait)
                                 $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logExField2 "Status: $($HostOnline)"
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -logExField1 "Node: $($Node.hostname)" -logMessage "Status: $($HostOnline)"
+                                Start-Sleep $($Stage.RetryWait / 2)
                             } Until (!$HostOnline)
 
                             if (!$HostOnline) {
