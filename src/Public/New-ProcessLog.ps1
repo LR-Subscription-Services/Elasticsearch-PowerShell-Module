@@ -53,12 +53,12 @@ Function New-ProcessLog {
         $cTime = "{0:MM/dd/yy} {0:HH:mm:ss}" -f (Get-Date)
 
         Switch ($logSev) {
-            e {$_logSev = 'ERROR'}
-            s {$_logSev = 'STATUS'}
+            e {$_logSev = 'ERROR  '}
+            s {$_logSev = 'STATUS '}
             w {$_logSev = 'WARNING'}
-            a {$_logSev = 'ALERT'}
-            i {$_logSev = 'INFO'}
-            d {$_logSev = 'DEBUG'}
+            a {$_logSev = 'ALERT  '}
+            i {$_logSev = 'INFO   '}
+            d {$_logSev = 'DEBUG  '}
             default {$logSev = "LOGGER ERROR"}
         }
 
@@ -78,7 +78,7 @@ Function New-ProcessLog {
             step = $LogStep
             message = $logMessage
         }
-        $LogOutput = "$($LogObj.timestamp) | $($LogObj.severity) | Stage: $($LogObj.stage) | Health: $($LogObj.health) | Step: $($LogObj.step) | "
+        $LogOutput = "$($LogObj.timestamp) | $($LogObj.severity) | Health: $($LogObj.health) | Stage: $($LogObj.stage) | Step: $($LogObj.step) | "
 
         if ($logExField1) {
             $LogObj | Add-Member -MemberType NoteProperty -Name step_note_01 -Value $logExField1 -Force
