@@ -123,7 +123,8 @@ Function Invoke-MonitorEsRecovery {
                 } else {
                     # Add sleep to this process for every iteration after the first.
                     if ($RetryCounter -gt 0) {
-                        start-sleep -Seconds [int32]$($RetrySleep / 2)
+                        [int32]$HalfSleep = $RetrySleep / 2
+                        start-sleep -Seconds $HalfSleep
                     }
                 }
             }
