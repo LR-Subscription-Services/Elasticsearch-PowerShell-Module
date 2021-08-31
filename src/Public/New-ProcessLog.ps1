@@ -66,13 +66,13 @@ Function New-ProcessLog {
         $cTime = "{0:MM/dd/yy} {0:HH:mm:ss}" -f (Get-Date)
 
         Switch ($logSev) {
-            e {$_logSev = 'ERROR  '}
-            s {$_logSev = 'STATUS '}
-            w {$_logSev = 'WARNING'}
-            a {$_logSev = 'ALERT  '}
-            i {$_logSev = 'INFO   '}
-            d {$_logSev = 'DEBUG  '}
-            default {$logSev = "LOGGER ERROR"}
+            e {$_logSev = 'ERRR'}
+            s {$_logSev = 'STAT'}
+            w {$_logSev = 'WARN'}
+            a {$_logSev = 'ALER'}
+            i {$_logSev = 'INFO'}
+            d {$_logSev = 'DBUG'}
+            default {$logSev = "LOG-ERR"}
         }
 
         # Retrieve cluster health at each logging instance
@@ -93,18 +93,18 @@ Function New-ProcessLog {
         }
 
         Switch ($($LogObj.health)) {
-            "green"  {$_logHealth = 'Green '}
-            "yellow" {$_logHealth = 'Yellow'}
-            "red"    {$_logHealth = 'Red   '}
+            "green"  {$_logHealth = 'G'}
+            "yellow" {$_logHealth = 'Y'}
+            "red"    {$_logHealth = 'R'}
             default {$_logHealth = $($LogObj.health)}
         }
 
         Switch ($($LogObj.stage)) {
-            "Check"    {$_logStage = 'Check   '}
-            "Init"     {$_logStage = 'Init    '}
-            "Running"  {$_logStage = 'Running '}
-            "Verify"   {$_logStage = 'Verify  '}
-            "Complete" {$_logStage = 'Complete'}
+            "Check"    {$_logStage = 'Cnfg'}
+            "Init"     {$_logStage = 'Init'}
+            "Run"  {$_logStage =     'Run '}
+            "Verify"   {$_logStage = 'Veri'}
+            "Complete" {$_logStage = 'Comp'}
             default {$_logStage = $($LogObj.stage)}
         }
 
@@ -115,26 +115,26 @@ Function New-ProcessLog {
             $LogOutput = $LogOutput + "Node: $($Node) | "
         }
 
+        if ($logRetryMax -and $logRetryCurrent) {
+            $LogObj | Add-Member -MemberType NoteProperty -Name retry_max -Value $logRetryMax -Force
+            $LogObj | Add-Member -MemberType NoteProperty -Name retry_cur -Value $logRetryCurrent -Force
+            $LogOutput = $LogOutput + "$($logRetryMax):$($logRetryCurrent) | "
+        }
+
         if ($Index) {
             $LogObj | Add-Member -MemberType NoteProperty -Name index -Value $Index -Force
             if ($Index -like "emdb_*") {
                 switch -Regex ($Index) {
-                    "emdb_location_.*" {$_index = "emdb_location  "}
-                    "emdb_list.*" {$_index = "emdb_list_items"}
-                    "emdb_ad_groups_.*" {$_index = "emdb_ad_groups "}
-                    "emdb_acl_msg_source_.*" {$_index= "emdb_acl_msgsrc"}
+                    "emdb_location_.*" {      $_index = "emdb_location_*"}
+                    "emdb_list.*" {           $_index = "emdb_list_item*"}
+                    "emdb_ad_groups_.*" {     $_index = "emdb_ad_groups*"}
+                    "emdb_acl_msg_source_.*" {$_index = "emdb_acl_msg_s*"}
                     default {$_index = $Index}
                 }
             } else {
                 $_index = $Index
             }
             $LogOutput = $LogOutput + "Index: $($_index) | "
-        }
-
-        if ($logRetryMax -and $logRetryCurrent) {
-            $LogObj | Add-Member -MemberType NoteProperty -Name retry_max -Value $logRetryMax -Force
-            $LogObj | Add-Member -MemberType NoteProperty -Name retry_cur -Value $logRetryCurrent -Force
-            $LogOutput = $LogOutput + "$($logRetryMax):$($logRetryCurrent) | "
         }
 
         if ($logExField1) {
