@@ -14,7 +14,10 @@ Function Invoke-MonitorEsRecovery {
         [int] $MaxAttempts,
 
         [Parameter(Mandatory = $true, Position = 3)]
-        [object] $Nodes
+        [object] $Nodes,
+
+        [Parameter(Mandatory = $true, Position = 4)]
+        [object] $CurrentNode
     )
     Begin {
         $InitHistory = [List[int]]::new()
@@ -57,12 +60,12 @@ Function Invoke-MonitorEsRecovery {
                 $BadIndexes = Get-EsIndex | Where-Object -Property 'health' -like 'red'
                 # Reset Columbo
                 if ($BadIndexes.index -contains 'field_translations') {
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logExField1 'Recover Field Translation Indices' -logMessage "Performing index recovery"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recover Field Translation Indices' -logMessage "Performing index recovery"
                     Invoke-LrTransSyncReset -Node $Nodes[0].ipaddr
                 }
                 # Reset Carpenter
                 if ((@($BadIndexes.index) -like 'emdb*').Count -gt 0) {
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logExField1 'Recover EMDB Indices' -logMessage "Performing index recovery"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recover EMDB Indices' -logMessage "Performing index recovery"
                     Invoke-LrEmdbSyncReset
                 }
                 #New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logMessage "Sleeping for 30 seconds"
@@ -98,18 +101,18 @@ Function Invoke-MonitorEsRecovery {
             } elseif ($CurrentUnassigned -gt 0 -and ($CurrentUnassigned -ne $LastUnassigned)) {
                 # Higher level overview of recovery progress
                 $RetryMax += 2
-                New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progression' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recovery Progression' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
             } else {
                 if ($RetryCounter -eq 1) {
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recovery Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                 } else {
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recovery Stalled' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                 }
             }
 
             if ($null -ne $LastRecovery) {
                 ForEach ($Recovery in $RecoveryList) {
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "File: $($Recovery.File)%  Bytes: $($Recovery.Bytes)%  Translog: $($Recovery.Trans)%" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Recovery Progress' -Node $($CurrentNode.hostname) -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "File: $($Recovery.File)%  Bytes: $($Recovery.Bytes)%  Translog: $($Recovery.Trans)%" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                 }
 
                 if ($RecoveryList -ne $LastRecovery) {
@@ -119,12 +122,12 @@ Function Invoke-MonitorEsRecovery {
                 if (($RetryCounter % 5) -eq 0) {
                     if ($RecoveryList -ne $LastRecovery) {
                         $RetryMax += 2
-                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Progress ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                        New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recovery Progress' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                     } else {
                         if ($RetryCounter -eq 1) {
-                            New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                            New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recovery Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                         } else {
-                            New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -logExField1 'Recovery Stalled ' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                            New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recovery Stalled' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                         }  
                     }
                     # Add sleep to this process for every iteration after the first.
