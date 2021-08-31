@@ -36,18 +36,26 @@ Function New-ProcessLog {
 
 
         [Parameter(Mandatory = $false, Position = 9)]
-        $LogFile,
+        [string] $logRetryMax,
 
 
         [Parameter(Mandatory = $false, Position = 10)]
-        [string] $WebhookDest,
+        [string] $logRetryCurrent,
 
-        
+
         [Parameter(Mandatory = $false, Position = 11)]
-        [switch] $SendWebhook,
+        $LogFile,
 
 
         [Parameter(Mandatory = $false, Position = 12)]
+        [string] $WebhookDest,
+
+        
+        [Parameter(Mandatory = $false, Position = 13)]
+        [switch] $SendWebhook,
+
+
+        [Parameter(Mandatory = $false, Position = 14)]
         [switch] $PassThru
     )
     Begin {
@@ -121,6 +129,12 @@ Function New-ProcessLog {
                 $_index = $Index
             }
             $LogOutput = $LogOutput + "Index: $($_index) | "
+        }
+
+        if ($logRetryMax -and $logRetryCurrent) {
+            $LogObj | Add-Member -MemberType NoteProperty -Name retry_max -Value $logRetryMax -Force
+            $LogObj | Add-Member -MemberType NoteProperty -Name retry_cur -Value $logRetryCurrent -Force
+            $LogOutput = $LogOutput + "$($logRetryMax):$($logRetryCurrent) | "
         }
 
         if ($logExField1) {
