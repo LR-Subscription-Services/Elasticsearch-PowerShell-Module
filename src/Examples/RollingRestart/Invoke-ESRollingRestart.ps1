@@ -88,7 +88,7 @@ $Stages.add([PSCustomObject]@{
     UserCommands = $Start_UserCommands
 })
 $Stages.add([PSCustomObject]@{
-    Name = "Running"
+    Name = "Run"
     ClusterStatus = "Yellow"
     SSH = $null
     IndexSize = -1
@@ -383,11 +383,11 @@ ForEach ($Stage in $Stages) {
     }
 
     # Begin Section - Start
-    if ($Stage.name -Like "Running") {
+    if ($Stage.name -Like "Run") {
         New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -logMessage "Begin Stage"
         #Do {
             ForEach ($Node in $RestartOrder) {
-                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -logMessage "Begin Node" -logExField1 "Node: $($Node.hostname)"
+                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -Node $($Node.hostname) -logMessage "Begin Node"
                 Do {
                     # Retrieve Cluster Status at the start of each stage's loop
                     $es_ClusterHealth = Get-EsClusterHealth
@@ -395,31 +395,31 @@ ForEach ($Stage in $Stages) {
                     $lr_ConsulLocks = Get-LrConsulLocks
 
                     if ($Node.type -like 'warm') {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -logMessage "Reviewing warm nodes for any open indices"
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -Node $($Node.hostname) -logMessage "Reviewing warm nodes for any open indices"
                         $OpenWarmIndices = Get-EsIndex | Where-Object -FilterScript {($_.status -like 'open') -and ($_.rep -eq 0)}
                         $WarmIndexClosed = 0
                         $WarmIndexOpened = $OpenWarmIndices.index.count
                         ForEach ($TargetIndex in $OpenWarmIndices) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -Index $($TargetIndex.Index) -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Index"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -Node $($Node.hostname) -Index $($TargetIndex.Index) -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Index"
                         
                             $CloseStatus = Close-EsIndex -Index $TargetIndex.Index
                             if ($CloseStatus.acknowledged) {
                                 $WarmIndexOpened  -= 1
                                 $WarmIndexClosed += 1
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -Index $($TargetIndex.Index) -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Status: Completed"
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -Node $($Node.hostname) -Index $($TargetIndex.Index) -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Status: Completed"
                             } else {
-                                New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -Index $($TargetIndex.Index) -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Status: Incomplete"
+                                New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -Node $($Node.hostname) -Index $($TargetIndex.Index) -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Status: Incomplete"
                             }
                         }
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -logMessage "Open indices review complete"
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -Node $($Node.hostname) -logMessage "Open indices review complete"
                     }
 
                     # Update cluster routing to Primaries before node reboot
                     $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
                     if ($tmp_VerifyAck.acknowledged) {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
                     } else {
-                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
+                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
                     }
 
                     # Add in restart to system here, using $($Node.ipaddr)
@@ -493,35 +493,35 @@ ForEach ($Stage in $Stages) {
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Beginning recovery"
                         $tmp_VerifyAck = Update-EsIndexRouting -Enable 'all'
                         if ($tmp_VerifyAck.acknowledged) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
                         } else {
-                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Unable to update cluster transient settings to target: all"
+                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Unable to update cluster transient settings to target: all"
                         }
 
-                        Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
+                        Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -CurrentNode $Node -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
                     }
                     
                     if ($Stage.UserCommands) {
                         Invoke-RunUserCommand -Stage $Stage -Nodes $Node
                     }
                     
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'Begin Step' -logExField1 "Node: $($Node.hostname)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'Begin Step' -logExField1 "Node: $($Node.hostname)"
                     if ($Stage.ManualCheck -eq $true -or $AlertCheck -eq $true) {
                         $UserDecision = Invoke-SelectionPrompt -Title "Node Complete" -Question "Do you want to proceed onto the next node?"
                         if ($UserDecision -eq 0) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Manual authorization granted.  Proceeding to next stage." -logExField1 "Node: $($Node.hostname)"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -Node $($Node.hostname) -logMessage "Manual authorization granted.  Proceeding to next stage." -logExField1 "Node: $($Node.hostname)"
                             $TransitionStage = $true
                         } else {
-                            New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Aborting rolling restart process due to manual halt." -logExField1 "Node: $($Node.hostname)"
+                            New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -Node $($Node.hostname) -logMessage "Aborting rolling restart process due to manual halt." -logExField1 "Node: $($Node.hostname)"
                             $AbortStatus = $true
                         }
                     } else {
                         $TransitionNode = $true
                     }
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'End Step' -logExField1 "Node: $($Node.hostname)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'End Step' -logExField1 "Node: $($Node.hostname)"
                 } While ($TransitionNode -eq $false -and $AbortStatus -eq $false)
 
-                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -logMessage "End Node" -logExField1 "Node: $($Node.hostname)"
+                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -Node $($Node.hostname) -logMessage "End Node" 
             }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
