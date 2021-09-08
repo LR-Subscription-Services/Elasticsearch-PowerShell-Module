@@ -95,8 +95,8 @@ $Stages.add([PSCustomObject]@{
     Name = "Executing"
     ClusterStatus = "Yellow"
     SSH = $null
-    IndexSize = -1
-    Routing = "Primaries"
+    IndexSize = 5
+    Routing = "primaries"
     Shard_Rebalance = "primaries"
     Shard_AllowRebalance = "indices_primaries_active"
     MaxRetry = 90
