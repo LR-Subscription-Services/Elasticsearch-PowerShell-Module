@@ -16,7 +16,7 @@ Function Invoke-MonitorEsRecovery {
         [Parameter(Mandatory = $true, Position = 3)]
         [object] $Nodes,
 
-        [Parameter(Mandatory = $true, Position = 4)]
+        [Parameter(Mandatory = $false, Position = 4)]
         [object] $CurrentNode
     )
     Begin {
@@ -32,6 +32,12 @@ Function Invoke-MonitorEsRecovery {
             $RetryMax = $MaxAttempts
         } else {
             $RetryMax = 20
+        }
+
+        if ($null -eq $CurrentNode) {
+            $CurrentNode = [PSCustomObject]@{
+                Hostname = [System.Net.Dns]::GetHostName()
+            }
         }
 
         $ClusterHealth = Get-EsClusterHealth
