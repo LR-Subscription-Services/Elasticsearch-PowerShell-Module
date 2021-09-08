@@ -250,9 +250,11 @@ ForEach ($Stage in $Stages) {
     } else {
         if ($IndexSettings.transient.cluster.routing.rebalance.enable) {
             $CurrentEsRebalance = $IndexSettings.transient.cluster.routing.rebalance.enable
-        } else {
+        } elseif ($IndexSettings.persistent.cluster.routing.rebalance.enable) {
             $CurrentEsRebalance = $IndexSettings.persistent.cluster.routing.rebalance.enable
-        } 
+        } else {
+            $CurrentEsRebalance = "null"
+        }
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $CurrentEsRebalance Target: $($Stage.Shard_Rebalance)"
     }
     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Target: $($Stage.Shard_Rebalance)" -logExField1 'End' 
@@ -353,35 +355,6 @@ ForEach ($Stage in $Stages) {
             $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
             $lr_ConsulLocks = Get-LrConsulLocks
 
-            # Optional - Close down number of cluster indexes to reduce node recovery time
-            if ($Stage.IndexSize -gt 0) {
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Begin Step" -logMessage "Begin closing indicies to reduce recovery time requirements" 
-
-                $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
-                if ($HotIndexes.count -le $stage.IndexSize) {
-                    $TargetOpenIndexCount = 1
-                } else {
-                    $TargetOpenIndexCount = $HotIndexes.count - $Stage.IndexSize
-                }
-                $TargetClosedIndexes = $HotIndexes | Select-Object -First $TargetOpenIndexCount
-                $HotIndexOpen = $HotIndexes.count
-                $HotIndexClosed = $TargetClosedIndexes.count
-                ForEach ($TargetIndex in $TargetClosedIndexes) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndex.Index)"
-                    
-                    $CloseStatus = Close-EsIndex -Index $TargetIndex.Index
-                    if ($CloseStatus.acknowledged) {
-                        $HotIndexOpen -= 1
-                        $HotIndexClosed += 1
-                        $ClosedHotIndexes.add($TargetIndex)
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Status: Completed"
-                    } else {
-                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Status: Incomplete"
-                    }
-                    
-                }
-            }
-
             if ($Stage.NodeDelayTimeout) {                                 
                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'ES Timeout Delay' -logExField1 "Begin Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
                 $UpdateVerify = Update-EsNodeDelayTimeout -Value $Stage.NodeDelayTimeout -Type 's'
@@ -425,6 +398,36 @@ ForEach ($Stage in $Stages) {
         #Do {
             ForEach ($Node in $RestartOrder) {
                 New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -Node $($Node.hostname) -logMessage "Begin Node"
+
+                # Optional - Close down number of cluster indexes to reduce node recovery time
+                if ($Stage.IndexSize -gt 0) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Begin Step" -logMessage "Begin closing indicies to reduce recovery time requirements" 
+
+                    $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
+                    if ($HotIndexes.count -le $stage.IndexSize) {
+                        $TargetOpenIndexCount = 1
+                    } else {
+                        $TargetOpenIndexCount = $HotIndexes.count - $Stage.IndexSize
+                    }
+                    $TargetClosedIndexes = $HotIndexes | Select-Object -First $TargetOpenIndexCount
+                    $HotIndexOpen = $HotIndexes.count
+                    $HotIndexClosed = $TargetClosedIndexes.count
+                    ForEach ($TargetIndex in $TargetClosedIndexes) {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndex.Index)"
+                        
+                        $CloseStatus = Close-EsIndex -Index $TargetIndex.Index
+                        if ($CloseStatus.acknowledged) {
+                            $HotIndexOpen -= 1
+                            $HotIndexClosed += 1
+                            $ClosedHotIndexes.add($TargetIndex)
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Status: Completed"
+                        } else {
+                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Status: Incomplete"
+                        }
+                        
+                    }
+                }
+
                 Do {
                     # Retrieve Cluster Status at the start of each stage's loop
                     $es_ClusterHealth = Get-EsClusterHealth
