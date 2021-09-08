@@ -100,11 +100,14 @@ Function New-ProcessLog {
         }
 
         Switch ($($LogObj.stage)) {
-            "Check"    {$_logStage = 'Cnfg'}
-            "Init"     {$_logStage = 'Init'}
-            "Run"  {$_logStage =     'Run '}
-            "Verify"   {$_logStage = 'Veri'}
-            "Complete" {$_logStage = 'Comp'}
+            "Check"      {$_logStage = 'Cnfg'}
+            "Configuration"    {$_logStage = 'Cnfg'}
+            "Init"       {$_logStage = 'Init'}
+            "Initialize" {$_logStage = 'Init'}
+            "Run"        {$_logStage =     'Exec'}
+            "Executing"  {$_logStage = 'Exec'}
+            "Verify"     {$_logStage = 'Veri'}
+            "Complete"   {$_logStage = 'Comp'}
             default {$_logStage = $($LogObj.stage)}
         }
 
