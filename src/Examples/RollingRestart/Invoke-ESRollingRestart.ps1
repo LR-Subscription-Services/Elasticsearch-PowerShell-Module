@@ -235,7 +235,7 @@ ForEach ($Stage in $Stages) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $($IndexSettings.transient.cluster.routing.rebalance.enable)  Target: $($Stage.Shard_Rebalance)"
         $tmp_VerifyAck = Update-EsShardRebalance -Enable $Stage.Shard_Rebalance -Allow_Rebalance $Stage.Shard_AllowRebalance
         if ($tmp_VerifyAck.acknowledged) {
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Set Cluster Shard Rebalance transient settings to target: $($Stage.Shard_Rebalance)"
         } else {
             New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Unable to update cluster transient settings to target: $($Stage.Shard_Rebalance)"
         }
@@ -243,7 +243,7 @@ ForEach ($Stage in $Stages) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $($IndexSettings.persistent.cluster.routing.rebalance.enable)  Target: $($Stage.Shard_Rebalance)"
         $tmp_VerifyAck = Update-EsShardRebalance -Enable $Stage.Shard_Rebalance -Allow_Rebalance $Stage.Shard_AllowRebalance
         if ($tmp_VerifyAck.acknowledged) {
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Set Cluster Shard Rebalance transient settings to target: $($Stage.Shard_Rebalance)"
         } else {
             New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Unable to update cluster transient settings to target: $($Stage.Shard_Rebalance)"
         }
@@ -488,9 +488,20 @@ ForEach ($Stage in $Stages) {
                                 $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
                                 if ($HostOnline) {
                                     $HostOnlineStatus = "Online"
+                                    Try {
+                                        $CurrentUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime} -ErrorAction SilentlyContinue
+                                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Current Uptime: $($CurrentUptime.tostring())"
+                                    } Catch {
+                                        
+                                    }
+                                    if ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime))) {
+                                        # Host has rebooted, very quickly!
+                                        $HostOnlineStatus = "Offline"
+                                    }
                                 } else {
                                     $HostOnlineStatus = "Offline"
                                 }
+                                $CurrentUptime = $null
                                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Status: $HostOnlineStatus"
                                 Start-Sleep $($Stage.RetryWait / 2)
                             } Until (!$HostOnline)
