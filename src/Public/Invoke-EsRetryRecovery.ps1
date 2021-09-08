@@ -20,7 +20,7 @@ Function Invoke-EsRetryRecovery {
     }
     
     Process {
-        $RequestUrl = $BaseUrl + "/_cluster/reroute?retry_failed=true?format=json"
+        $RequestUrl = $BaseUrl + "/_cluster/reroute?retry_failed=true"
 
 
         Try {
