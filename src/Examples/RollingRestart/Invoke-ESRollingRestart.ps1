@@ -62,12 +62,14 @@ $ClosedHotIndexes = [List[object]]::new()
 
 $Stages = [List[object]]::new()
 $Stages.add([PSCustomObject]@{
-    Name = "Check"
+    Name = "Configuration"
     ClusterStatus = "Green"
     ClusterHosts = $(Get-LrClusterHosts)
     SSH = "Verify"
     IndexSize = -1
-    Routing = "All"
+    Routing = "all"
+    Shard_Rebalance = "all"
+    Shard_AllowRebalance = "indices_all_active"
     MaxRetry = 40
     RetryWait = 15
     Flush = $false
@@ -75,11 +77,13 @@ $Stages.add([PSCustomObject]@{
     UserCommands = $Pre_UserCommands
 })
 $Stages.add([PSCustomObject]@{
-    Name = "Init"
+    Name = "Initialize"
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
     Routing = "Primaries"
+    Shard_Rebalance = "primaries"
+    Shard_AllowRebalance = "indices_primaries_active"
     MaxRetry = 40
     RetryWait = 15
     NodeDelayTimeout = 60
@@ -88,11 +92,13 @@ $Stages.add([PSCustomObject]@{
     UserCommands = $Start_UserCommands
 })
 $Stages.add([PSCustomObject]@{
-    Name = "Run"
+    Name = "Executing"
     ClusterStatus = "Yellow"
     SSH = $null
     IndexSize = -1
     Routing = "Primaries"
+    Shard_Rebalance = "primaries"
+    Shard_AllowRebalance = "indices_primaries_active"
     MaxRetry = 90
     RetryWait = 5
     Flush = $false
@@ -104,7 +110,9 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
-    Routing = "All"
+    Routing = "all"
+    Shard_Rebalance = "all"
+    Shard_AllowRebalance = "indices_all_active"
     MaxRetry = 40
     RetryWait = 15
     NodeDelayTimeout = 300
@@ -117,7 +125,9 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = "Verify"
     IndexSize = -1
-    Routing = "All"
+    Routing = "all"
+    Shard_Rebalance = "all"
+    Shard_AllowRebalance = "indices_all_active"
     MaxRetry = 40
     RetryWait = 15
     Flush = $false
@@ -194,7 +204,7 @@ ForEach ($Stage in $Stages) {
 
     # If the current stage does not have the Shard allocation enabed, update the transient cluster routing to target to support cluster health recovery
     # This check inspects the current transient/temporary setting applied to the DX cluster
-    if ($IndexSettings.transient.cluster.routing.allocation.enable -and $IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing) {
+    if ($IndexSettings.transient.cluster.routing.allocation.enable -and ($IndexSettings.transient.cluster.routing.allocation.enable -notlike $Stage.Routing)) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Current: $($IndexSettings.transient.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
         $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
         if ($tmp_VerifyAck.acknowledged) {
@@ -202,7 +212,7 @@ ForEach ($Stage in $Stages) {
         } else {
             New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
         }
-    } elseif ($IndexSettings.persistent.cluster.routing.allocation.enable -and $IndexSettings.persistent.cluster.routing.allocation.enable -notlike $Stage.Routing) {
+    } elseif ($IndexSettings.persistent.cluster.routing.allocation.enable -and ($IndexSettings.persistent.cluster.routing.allocation.enable -notlike $Stage.Routing)) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Current: $($IndexSettings.persistent.cluster.routing.allocation.enable)  Target: $($Stage.Routing)"
         $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
         if ($tmp_VerifyAck.acknowledged) {
@@ -220,9 +230,36 @@ ForEach ($Stage in $Stages) {
     }
     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Target: $($Stage.Routing)" -logExField1 'End'
 
+    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Target: $($Stage.Shard_Rebalance)" -logExField1 'Begin' 
+    if ($IndexSettings.transient.cluster.routing.rebalance.enable -and ($IndexSettings.transient.cluster.routing.rebalance.enable -notlike $Stage.Shard_Rebalance)) {
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $($IndexSettings.transient.cluster.routing.rebalance.enable)  Target: $($Stage.Shard_Rebalance)"
+        $tmp_VerifyAck = Update-EsShardRebalance -Enable $Stage.Shard_Rebalance -Allow_Rebalance $Stage.Shard_AllowRebalance
+        if ($tmp_VerifyAck.acknowledged) {
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+        } else {
+            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Unable to update cluster transient settings to target: $($Stage.Shard_Rebalance)"
+        }
+    } elseif ($IndexSettings.persistent.cluster.routing.rebalance.enable -and $IndexSettings.persistent.cluster.routing.rebalance.enable -notlike $Stage.Shard_Rebalance) {
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $($IndexSettings.persistent.cluster.routing.rebalance.enable)  Target: $($Stage.Shard_Rebalance)"
+        $tmp_VerifyAck = Update-EsShardRebalance -Enable $Stage.Shard_Rebalance -Allow_Rebalance $Stage.Shard_AllowRebalance
+        if ($tmp_VerifyAck.acknowledged) {
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+        } else {
+            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Unable to update cluster transient settings to target: $($Stage.Shard_Rebalance)"
+        }
+    } else {
+        if ($IndexSettings.transient.cluster.routing.rebalance.enable) {
+            $CurrentEsRebalance = $IndexSettings.transient.cluster.routing.rebalance.enable
+        } else {
+            $CurrentEsRebalance = $IndexSettings.persistent.cluster.routing.rebalance.enable
+        } 
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $CurrentEsRebalance Target: $($Stage.Shard_Rebalance)"
+    }
+    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Target: $($Stage.Shard_Rebalance)" -logExField1 'End' 
+
     # Status to support validating transition to the next stage
     $TransitionStage = $false
-    if ($Stage.name -Like "Check") {
+    if ($Stage.name -Like "Configuration") {
         Do {
             # Retrieve Cluster Status at the start of each stage's loop
             $es_ClusterHealth = Get-EsClusterHealth
@@ -284,20 +321,20 @@ ForEach ($Stage in $Stages) {
                 Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
             }
 
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Elasticsearch Rolling Restart" -Question "Are you sure you want to proceed?"
                 if ($UserDecision -eq 0) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Manual authorization granted.  Proceeding to next stage."
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Manual authorization granted.  Proceeding to next stage."
                     $TransitionStage = $true
                 } else {
-                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Aborting rolling restart process due to manual halt."
+                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Aborting rolling restart process due to manual halt."
                     $AbortStatus = $true
                 }
             } else {
                 $TransitionStage = $true
             }
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
 
 
             # Apply Stay Loop Delay if we're not aborting and not transitioning to the next phase
@@ -309,7 +346,7 @@ ForEach ($Stage in $Stages) {
     }
 
     # Begin Section - Init
-    if ($Stage.name -Like "Init") {
+    if ($Stage.name -Like "Initialize") {
         Do {
             # Retrieve Cluster Status at the start of each stage's loop
             $es_ClusterHealth = Get-EsClusterHealth
@@ -345,35 +382,35 @@ ForEach ($Stage in $Stages) {
                 }
             }
 
-            if ($Stage.NodeDelayTimeout) {
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "Begin Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
+            if ($Stage.NodeDelayTimeout) {                                 
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'ES Timeout Delay' -logExField1 "Begin Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
                 $UpdateVerify = Update-EsNodeDelayTimeout -Value $Stage.NodeDelayTimeout -Type 's'
                 if ($UpdateVerify.acknowledged) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Successfully updated Node Timeout Delay"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'ES Timeout Delay' -logMessage "Successfully updated Node Timeout Delay"
                 } else {
-                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Unable to update Node Timeout Delay"
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'ES Timeout Delay' -logMessage "Unable to update Node Timeout Delay"
                 }
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "End Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'ES Timeout Delay' -logExField1 "End Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
             }
 
             if ($Stage.UserCommands) {
                 Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
             }
 
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
                 if ($UserDecision -eq 0) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Manual authorization granted.  Proceeding to next stage."
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Manual authorization granted.  Proceeding to next stage."
                     $TransitionStage = $true
                 } else {
-                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Aborting rolling restart process due to manual halt."
+                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Aborting rolling restart process due to manual halt."
                     $AbortStatus = $true
                 }
             } else {
                 $TransitionStage = $true
             }
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
 
             # Apply Stay Loop Delay if we're not aborting and not transitioning to the next phase
             if ($TransitionStage -eq $false -and $AbortStatus -eq $false) {
@@ -383,7 +420,7 @@ ForEach ($Stage in $Stages) {
     }
 
     # Begin Section - Start
-    if ($Stage.name -Like "Run") {
+    if ($Stage.name -Like "Executing") {
         New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -logMessage "Begin Stage"
         #Do {
             ForEach ($Node in $RestartOrder) {
@@ -505,33 +542,33 @@ ForEach ($Stage in $Stages) {
                         Invoke-RunUserCommand -Stage $Stage -Nodes $Node
                     }
                     
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'Begin Step' -logExField1 "Node: $($Node.hostname)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'Begin Step' -logExField1 "Node: $($Node.hostname)"
                     if ($Stage.ManualCheck -eq $true -or $AlertCheck -eq $true) {
                         $UserDecision = Invoke-SelectionPrompt -Title "Node Complete" -Question "Do you want to proceed onto the next node?"
                         if ($UserDecision -eq 0) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -Node $($Node.hostname) -logMessage "Manual authorization granted.  Proceeding to next stage." -logExField1 "Node: $($Node.hostname)"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Manual authorization granted.  Proceeding to next stage." -logExField1 "Node: $($Node.hostname)"
                             $TransitionStage = $true
                         } else {
-                            New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -Node $($Node.hostname) -logMessage "Aborting rolling restart process due to manual halt." -logExField1 "Node: $($Node.hostname)"
+                            New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Aborting rolling restart process due to manual halt." -logExField1 "Node: $($Node.hostname)"
                             $AbortStatus = $true
                         }
                     } else {
                         $TransitionNode = $true
                     }
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'End Step' -logExField1 "Node: $($Node.hostname)"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'End Step' -logExField1 "Node: $($Node.hostname)"
                 } While ($TransitionNode -eq $false -and $AbortStatus -eq $false)
 
                 New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -Node $($Node.hostname) -logMessage "End Node" 
             }
 
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
                 if ($UserDecision -eq 0) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Manual authorization granted.  Proceeding to next stage."
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Manual authorization granted.  Proceeding to next stage."
                     $TransitionStage = $true
                 } else {
-                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Aborting rolling restart process due to manual halt."
+                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Aborting rolling restart process due to manual halt."
                     $AbortStatus = $true
                 }
             } else {
@@ -588,20 +625,53 @@ ForEach ($Stage in $Stages) {
                 Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
             }
 
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
                 if ($UserDecision -eq 0) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Manual authorization granted.  Proceeding to next stage."
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Manual authorization granted.  Proceeding to next stage."
                     $TransitionStage = $true
                 } else {
-                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Aborting rolling restart process due to manual halt."
+                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Aborting rolling restart process due to manual halt."
                     $AbortStatus = $true
                 }
             } else {
                 $TransitionStage = $true
             }
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verification' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
+        } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
+    }
+
+    if ($Stage.name -like "Complete") {
+        Do {
+            # Retrieve Cluster Status at the start of each stage's loop
+            $es_ClusterHealth = Get-EsClusterHealth
+            $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
+            $lr_ConsulLocks = Get-LrConsulLocks
+
+            $IndexStatus = Get-EsIndexStatus
+            $IndexSettings = Get-EsSettings
+
+            $Indexes = Get-EsIndex
+
+            if ($Stage.UserCommands) {
+                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
+            }
+
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
+            if ($Stage.ManualCheck -eq $true) {
+                $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
+                if ($UserDecision -eq 0) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Manual authorization granted.  Proceeding to next stage."
+                    $TransitionStage = $true
+                } else {
+                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Aborting rolling restart process due to manual halt."
+                    $AbortStatus = $true
+                }
+            } else {
+                $TransitionStage = $true
+            }
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'End Step'
         } While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
     }
     New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Rolling Restart' -logMessage "Stage: $($Stage.Name)" -logExField1 "End Stage"
