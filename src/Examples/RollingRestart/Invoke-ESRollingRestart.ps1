@@ -68,8 +68,6 @@ $Stages.add([PSCustomObject]@{
     SSH = "Verify"
     IndexSize = -1
     Routing = "all"
-    Shard_Rebalance = "all"
-    Shard_AllowRebalance = "indices_all_active"
     MaxRetry = 40
     RetryWait = 15
     Flush = $false
@@ -81,9 +79,7 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
-    Routing = "Primaries"
-    Shard_Rebalance = "primaries"
-    Shard_AllowRebalance = "indices_primaries_active"
+    Routing = "new_primaries"
     MaxRetry = 40
     RetryWait = 15
     NodeDelayTimeout = 60
@@ -96,9 +92,7 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Yellow"
     SSH = $null
     IndexSize = 5
-    Routing = "primaries"
-    Shard_Rebalance = "primaries"
-    Shard_AllowRebalance = "indices_primaries_active"
+    Routing = "new_primaries"
     MaxRetry = 90
     RetryWait = 5
     Flush = $false
@@ -111,8 +105,6 @@ $Stages.add([PSCustomObject]@{
     SSH = $null
     IndexSize = -1
     Routing = "all"
-    Shard_Rebalance = "all"
-    Shard_AllowRebalance = "indices_all_active"
     MaxRetry = 40
     RetryWait = 15
     NodeDelayTimeout = 300
@@ -126,8 +118,6 @@ $Stages.add([PSCustomObject]@{
     SSH = "Verify"
     IndexSize = -1
     Routing = "all"
-    Shard_Rebalance = "all"
-    Shard_AllowRebalance = "indices_all_active"
     MaxRetry = 40
     RetryWait = 15
     Flush = $false
@@ -230,6 +220,7 @@ ForEach ($Stage in $Stages) {
     }
     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Target: $($Stage.Routing)" -logExField1 'End'
 
+    <#
     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Target: $($Stage.Shard_Rebalance)" -logExField1 'Begin' 
     if ($IndexSettings.transient.cluster.routing.rebalance.enable -and ($IndexSettings.transient.cluster.routing.rebalance.enable -notlike $Stage.Shard_Rebalance)) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $($IndexSettings.transient.cluster.routing.rebalance.enable)  Target: $($Stage.Shard_Rebalance)"
@@ -258,6 +249,7 @@ ForEach ($Stage in $Stages) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $CurrentEsRebalance Target: $($Stage.Shard_Rebalance)"
     }
     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Target: $($Stage.Shard_Rebalance)" -logExField1 'End' 
+    #>
 
     # Status to support validating transition to the next stage
     $TransitionStage = $false
