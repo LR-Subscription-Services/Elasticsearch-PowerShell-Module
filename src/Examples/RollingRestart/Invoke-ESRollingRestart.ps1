@@ -428,12 +428,13 @@ ForEach ($Stage in $Stages) {
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndex.Index)"
                         if ($TargetIndices.count -gt 1) {
                             $Indices = $([String]::Join(", ",$TargetIndices))
-
-                            $CloseStatus = Close-EsIndex -Index $([String]::Join(",",$Indices))
+                            write-host $Indices
+                            $CloseStatus = Close-EsIndex -Index $Indices
                         } else {
+                            write-host $TargetIndices
                             $CloseStatus = Close-EsIndex -Index $TargetIndices
                         }
-                        write-host $TargetIndices
+                        
                         
                         if ($CloseStatus.acknowledged) {
                             $HotIndexOpen -= $TargetIndices.count
