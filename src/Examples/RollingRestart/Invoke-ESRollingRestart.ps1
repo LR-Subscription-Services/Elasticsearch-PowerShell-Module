@@ -435,7 +435,6 @@ ForEach ($Stage in $Stages) {
                             $CloseStatus = Close-EsIndex -Index $TargetIndices
                         }
                         
-                        
                         if ($CloseStatus.acknowledged) {
                             $HotIndexOpen -= $TargetIndices.count
                             $HotIndexClosed += $TargetIndices.count
