@@ -67,6 +67,8 @@ $Stages.add([PSCustomObject]@{
     ClusterHosts = $(Get-LrClusterHosts)
     SSH = "Verify"
     IndexSize = -1
+    Bulk_Open = 1
+    Bulk_Close = 10
     Routing = "all"
     MaxRetry = 40
     RetryWait = 15
@@ -79,6 +81,8 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
+    Bulk_Open = 1
+    Bulk_Close = 10
     Routing = "new_primaries"
     MaxRetry = 40
     RetryWait = 15
@@ -92,6 +96,8 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Yellow"
     SSH = $null
     IndexSize = 5
+    Bulk_Open = 2
+    Bulk_Close = 10
     Routing = "new_primaries"
     MaxRetry = 90
     RetryWait = 5
@@ -104,6 +110,8 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
+    Bulk_Open = 2
+    Bulk_Close = 10
     Routing = "all"
     MaxRetry = 40
     RetryWait = 15
@@ -117,6 +125,8 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = "Verify"
     IndexSize = -1
+    Bulk_Open = 1
+    Bulk_Close = 10
     Routing = "all"
     MaxRetry = 40
     RetryWait = 15
@@ -401,22 +411,41 @@ ForEach ($Stage in $Stages) {
                     } else {
                         $TargetOpenIndexCount = $HotIndexes.count - $Stage.IndexSize
                     }
-                    $TargetClosedIndexes = $HotIndexes | Select-Object -First $TargetOpenIndexCount
+
+                    # Reduce target indexes to the quantity defined.
+                    $TargetClosedIndexes = $HotIndexes | Select-Object -ExpandProperty 'Index' -First $TargetOpenIndexCount
+                    # Establish an array of an array of target indexes to support bulk close operations
+                    if ($Stage.Bulk_Close -le 0) {
+                        $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
+                    } else {
+                        $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments $Stage.Bulk_Close
+                    }
+                    
+
                     $HotIndexOpen = $HotIndexes.count
                     $HotIndexClosed = $TargetClosedIndexes.count
-                    ForEach ($TargetIndex in $TargetClosedIndexes) {
+                    ForEach ($TargetIndices in $CloseIndexSegments) {
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndex.Index)"
+                        if ($TargetIndices.count -gt 1) {
+                            $Indices = $([String]::Join(", ",$TargetIndices))
+
+                            $CloseStatus = Close-EsIndex -Index $([String]::Join(",",$Indices))
+                        } else {
+                            $CloseStatus = Close-EsIndex -Index $TargetIndices
+                        }
+                        write-host $TargetIndices
                         
-                        $CloseStatus = Close-EsIndex -Index $TargetIndex.Index
                         if ($CloseStatus.acknowledged) {
-                            $HotIndexOpen -= 1
-                            $HotIndexClosed += 1
-                            $ClosedHotIndexes.add($TargetIndex)
+                            $HotIndexOpen -= $TargetIndices.count
+                            $HotIndexClosed += $TargetIndices.count
+
+                            ForEach ($Index in $TargetIndices) {
+                                $ClosedHotIndexes.add($Index)
+                            }                            
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Status: Completed"
                         } else {
                             New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Status: Incomplete"
                         }
-                        
                     }
                 }
 
