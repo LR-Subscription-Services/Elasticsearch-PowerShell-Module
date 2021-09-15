@@ -406,7 +406,7 @@ ForEach ($Stage in $Stages) {
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Begin Step" -logMessage "Begin closing indicies to reduce recovery time requirements" 
 
                     $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
-                    if ($HotIndexes.count -le $stage.IndexSize) {
+                    if ($HotIndexes.count -le $Stage.IndexSize) {
                         $TargetOpenIndexCount = 1
                     } else {
                         $TargetOpenIndexCount = $HotIndexes.count - $Stage.IndexSize
@@ -419,7 +419,13 @@ ForEach ($Stage in $Stages) {
                     if ($Stage.Bulk_Close -le 0) {
                         $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
                     } else {
-                        [int32]$SegmentCount = $TargetClosedIndexes.count / $Stage.Bulk_Close
+                        # Default to one segment if Bulk_Close >= TargetIndexCount
+                        if ($Stage.Bulk_Close -ge $TargetClosedIndexes.count) {
+                            [int32]$SegmentCount = 1
+                        } else {
+                            [int32]$SegmentCount = $TargetClosedIndexes.count / $Stage.Bulk_Close
+                        }
+                        
                         $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments $SegmentCount
                     }
                     
