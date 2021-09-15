@@ -391,14 +391,10 @@ ForEach ($Stage in $Stages) {
                     if ($CloseIndexSegments.count -gt 1) {
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: $($CloseIndexSegments.count)" -logExField1 "Begin Step"
                         ForEach ($TargetIndices in $CloseIndexSegments) {
-                            if ($TargetIndices.count -gt 1) {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing bulk indices: $($TargetIndices.count)"
-                                $Indices = $([String]::Join(",",$TargetIndices.index))
-                                $CloseStatus = Close-EsIndex -Index $Indices
-                            } else {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndices.Index)"
-                                $CloseStatus = Close-EsIndex -Index $TargetIndices.index
-                            }
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing bulk indices: $($TargetIndices.count)"
+                            $Indices = $([String]::Join(",",$TargetIndices.index))
+                            $CloseStatus = Close-EsIndex -Index $Indices
+
                             
                             if ($CloseStatus.acknowledged) {
                                 $HotIndexOpen -= $TargetIndices.count
@@ -414,7 +410,7 @@ ForEach ($Stage in $Stages) {
                         }
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: $($CloseIndexSegments.count)" -logExField1 "End Step"
                     } else {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: 1" -logExField1 "Begin Step"
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: $($CloseIndexSegments.count)" -logExField1 "Begin Step"
                         ForEach ($TargetIndices in $CloseIndexSegments) {
                             ForEach ($Index in $TargetIndices) {
                                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($Index.Index)"
@@ -433,7 +429,7 @@ ForEach ($Stage in $Stages) {
                                 }
                             }
                         }
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: 1" -logExField1 "End Step"
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: $($CloseIndexSegments.count)" -logExField1 "End Step"
                     }
                 }
 
@@ -448,6 +444,57 @@ ForEach ($Stage in $Stages) {
                         $OpenWarmIndices = Get-EsIndex | Where-Object -FilterScript {($_.status -like 'open') -and ($_.rep -eq 0)}
                         $WarmIndexClosed = 0
                         $WarmIndexOpened = $OpenWarmIndices.index.count
+
+
+                        # Establish an array of an array of target indexes to support bulk close operations
+                        if ($Stage.Bulk_Close -le 0) {
+                            $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
+                        } else {
+                            # Default to one segment if Bulk_Close >= TargetIndexCount
+                            if ($Stage.Bulk_Close -ge $OpenWarmIndices.count) {
+                                [int32]$SegmentCount = 1
+                            } else {
+                                [int32]$SegmentCount = $OpenWarmIndices.count / $Stage.Bulk_Close
+                            }
+                            $CloseIndexSegments =  Split-ArraySegments -InputArray $OpenWarmIndices -Segments $SegmentCount
+                        }
+
+                        if ($CloseIndexSegments.count -gt 1) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: $($CloseIndexSegments.count)" -logExField1 "Begin Step"
+                            ForEach ($TargetIndices in $CloseIndexSegments) {
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing bulk indices: $($TargetIndices.count)"
+                                $Indices = $([String]::Join(",",$TargetIndices.index))
+                                $CloseStatus = Close-EsIndex -Index $Indices
+                                
+                                if ($CloseStatus.acknowledged) {
+                                    $WarmIndexOpen -= $TargetIndices.count
+                                    $WarmIndexClosed += $TargetIndices.count
+                       
+                                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Completed"
+                                } else {
+                                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Incomplete"
+                                }
+                            }
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: $($CloseIndexSegments.count)" -logExField1 "End Step"
+                        } else {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: $($CloseIndexSegments.count)" -logExField1 "Begin Step"
+                            ForEach ($TargetIndices in $CloseIndexSegments) {
+                                ForEach ($Index in $TargetIndices) {
+                                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Index: $($Index.Index)"
+                                    $CloseStatus = Close-EsIndex -Index $Index.index
+                                
+                                    if ($CloseStatus.acknowledged) {
+                                        $HotIndexOpen -= 1
+                                        $HotIndexClosed += 1                          
+                                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Completed"
+                                    } else {
+                                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Incomplete"
+                                    }
+                                }
+                            }
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Size: $($CloseIndexSegments.count)" -logExField1 "End Step"
+                        }
+
                         ForEach ($TargetIndex in $OpenWarmIndices) {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -Node $($Node.hostname) -Index $($TargetIndex.Index) -logExField1 "Open:$($WarmIndexOpened) Closed:$($WarmIndexClosed) Target:0" -logMessage "Closing Index"
                         
@@ -638,14 +685,10 @@ ForEach ($Stage in $Stages) {
                 if ($OpenIndexSegments.count -gt 1) {
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index - Mode' -logMessage "Segment Size: $($OpenIndexSegments.count)" -logExField1 "Begin Step"
                     ForEach ($TargetIndices in $OpenIndexSegments) {
-                        if ($TargetIndices.count -gt 1) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open bulk indices: $($TargetIndices.count)"
-                            $Indices = $([String]::Join(",",$TargetIndices.index))
-                            $OpenStatus = Open-EsIndex -Index $Indices
-                        } else {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Opening Index: $($TargetIndices.index)"
-                            $OpenStatus = Open-EsIndex -Index $TargetIndices.index
-                        }
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open bulk indices: $($TargetIndices.count)"
+                        $Indices = $([String]::Join(",",$TargetIndices.index))
+                        $OpenStatus = Open-EsIndex -Index $Indices
+
                     
                         if ($OpenStatus.acknowledged) {
                             $HotIndexOpen += $TargetIndices.count
