@@ -110,7 +110,7 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
-    Bulk_Open = 2
+    Bulk_Open = 4
     Bulk_Close = 10
     Routing = "all"
     MaxRetry = 40
@@ -125,7 +125,7 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = "Verify"
     IndexSize = -1
-    Bulk_Open = 1
+    Bulk_Open = 4
     Bulk_Close = 10
     Routing = "all"
     MaxRetry = 40
@@ -135,27 +135,7 @@ $Stages.add([PSCustomObject]@{
     UserCommands = $End_UserCommands
 })
 
-Function Invoke-RunUserCommand {
-    [CmdletBinding()]
-    Param(
-        [Parameter(Mandatory = $false, Position = 0)]
-        [object] $Stage,
 
-        [object] $Nodes
-    )
-    ForEach ($Node in $Nodes) {
-        if ($Stage.UserCommands) {
-            $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "Begin Step"
-            ForEach ($UserCommand in $Stage.UserCommands) {
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
-                $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c $UserCommand} -ErrorAction SilentlyContinue
-                Write-Host $HostResult
-            }
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "End Step"
-        }
-    }
-}
 
 # Status to support aborting at the transition point from the exit of one process tage prior to beginning the next stage
 $AbortStatus = $false
@@ -230,36 +210,6 @@ ForEach ($Stage in $Stages) {
     }
     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Target: $($Stage.Routing)" -logExField1 'End'
 
-    <#
-    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Target: $($Stage.Shard_Rebalance)" -logExField1 'Begin' 
-    if ($IndexSettings.transient.cluster.routing.rebalance.enable -and ($IndexSettings.transient.cluster.routing.rebalance.enable -notlike $Stage.Shard_Rebalance)) {
-        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $($IndexSettings.transient.cluster.routing.rebalance.enable)  Target: $($Stage.Shard_Rebalance)"
-        $tmp_VerifyAck = Update-EsShardRebalance -Enable $Stage.Shard_Rebalance -Allow_Rebalance $Stage.Shard_AllowRebalance
-        if ($tmp_VerifyAck.acknowledged) {
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Set Cluster Shard Rebalance transient settings to target: $($Stage.Shard_Rebalance)"
-        } else {
-            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Unable to update cluster transient settings to target: $($Stage.Shard_Rebalance)"
-        }
-    } elseif ($IndexSettings.persistent.cluster.routing.rebalance.enable -and $IndexSettings.persistent.cluster.routing.rebalance.enable -notlike $Stage.Shard_Rebalance) {
-        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $($IndexSettings.persistent.cluster.routing.rebalance.enable)  Target: $($Stage.Shard_Rebalance)"
-        $tmp_VerifyAck = Update-EsShardRebalance -Enable $Stage.Shard_Rebalance -Allow_Rebalance $Stage.Shard_AllowRebalance
-        if ($tmp_VerifyAck.acknowledged) {
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Set Cluster Shard Rebalance transient settings to target: $($Stage.Shard_Rebalance)"
-        } else {
-            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Unable to update cluster transient settings to target: $($Stage.Shard_Rebalance)"
-        }
-    } else {
-        if ($IndexSettings.transient.cluster.routing.rebalance.enable) {
-            $CurrentEsRebalance = $IndexSettings.transient.cluster.routing.rebalance.enable
-        } elseif ($IndexSettings.persistent.cluster.routing.rebalance.enable) {
-            $CurrentEsRebalance = $IndexSettings.persistent.cluster.routing.rebalance.enable
-        } else {
-            $CurrentEsRebalance = "null"
-        }
-        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Current: $CurrentEsRebalance Target: $($Stage.Shard_Rebalance)"
-    }
-    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Rebalance' -logMessage "Target: $($Stage.Shard_Rebalance)" -logExField1 'End' 
-    #>
 
     # Status to support validating transition to the next stage
     $TransitionStage = $false
@@ -401,6 +351,13 @@ ForEach ($Stage in $Stages) {
             ForEach ($Node in $RestartOrder) {
                 New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -Node $($Node.hostname) -logMessage "Begin Node"
 
+                Try {
+                    $Indexes = Get-EsIndex
+                    New-ProcessLog -logSev d -logStage $($Stage.Name) -logStep 'Index Catalog' -logMessage "Successfully retrieved Indexes in variable Indexes"
+                } Catch {
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Index Catalog' -logMessage "Unable to retrieve Indexes in variable Indexes"
+                }
+
                 # Optional - Close down number of cluster indexes to reduce node recovery time
                 if ($Stage.IndexSize -gt 0) {
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Begin Step" -logMessage "Begin closing indicies to reduce recovery time requirements" 
@@ -425,7 +382,6 @@ ForEach ($Stage in $Stages) {
                         } else {
                             [int32]$SegmentCount = $TargetClosedIndexes.count / $Stage.Bulk_Close
                         }
-                        
                         $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments $SegmentCount
                     }
                     
@@ -475,7 +431,6 @@ ForEach ($Stage in $Stages) {
                             }
                         }
                     }
-                    
                 }
 
                 Do {
@@ -667,32 +622,56 @@ ForEach ($Stage in $Stages) {
                 if ($Stage.Bulk_Open -le 0) {
                     $OpenIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
                 } else {
-                    [int32]$SegmentCount = $TargetOpenIndexes.count / $Stage.Bulk_Open
+                    if ($Stage.Bulk_Open -ge $TargetOpenIndexes.count) {
+                        [int32]$SegmentCount = 1
+                    } else {
+                        [int32]$SegmentCount = $TargetOpenIndexes.count / $Stage.Bulk_Open
+                    }
+                    
                     $OpenIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments $SegmentCount
                 }
                 
 
                 $HotIndexOpen = $HotIndexes.count
                 $HotIndexClosed = $TargetOpenIndexes.count
-                ForEach ($TargetIndices in $OpenIndexSegments) {
-                    if ($TargetIndices.count -gt 1) {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing bulk indices: $($TargetIndex.count)"
-                        $Indices = $([String]::Join(",",$TargetIndices.index))
-                        $OpenStatus = Open-EsIndex -Index $Indices
-                    } else {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndex.Index)"
-                        $OpenStatus = Open-EsIndex -Index $TargetIndices.index
+                if ($OpenIndexSegments.count -gt 1) {
+                    ForEach ($TargetIndices in $OpenIndexSegments) {
+                        if ($TargetIndices.count -gt 1) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open bulk indices: $($TargetIndices.count)"
+                            $Indices = $([String]::Join(",",$TargetIndices.index))
+                            $OpenStatus = Open-EsIndex -Index $Indices
+                        } else {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Opening Index: $($TargetIndices.index)"
+                            $OpenStatus = Open-EsIndex -Index $TargetIndices.index
+                        }
+                    
+                        if ($OpenStatus.acknowledged) {
+                            $HotIndexOpen += $TargetIndices.count
+                            $HotIndexClosed -= $TargetIndices.count
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Completed" 
+                            Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
+                        } else {
+                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Incomplete" 
+                        }
                     }
-                
-                    if ($OpenStatus.acknowledged) {
-                        $HotIndexOpen += $TargetIndices.count
-                        $HotIndexClosed -= $TargetIndices.count
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Completed" 
-                        Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
-                    } else {
-                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Incomplete" 
+                } else {
+                    ForEach ($TargetIndices in $OpenIndexSegments) {
+                        ForEach ($TargetIndex in $TargetIndices) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Opening Index: $($TargetIndex.index)"
+                            $OpenStatus = Open-EsIndex -Index $TargetIndex.index
+                        }
+                    
+                        if ($OpenStatus.acknowledged) {
+                            $HotIndexOpen += 1
+                            $HotIndexClosed -= 1
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Completed" 
+                            Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
+                        } else {
+                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Incomplete" 
+                        }
                     }
                 }
+                
                 New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "End Step" -logMessage "Opening hot indicies to restore production environment state."
             }
 
