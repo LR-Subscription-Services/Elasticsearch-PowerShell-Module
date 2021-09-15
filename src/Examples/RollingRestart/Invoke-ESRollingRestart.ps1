@@ -413,26 +413,28 @@ ForEach ($Stage in $Stages) {
                     }
 
                     # Reduce target indexes to the quantity defined.
-                    $TargetClosedIndexes = $HotIndexes | Select-Object -ExpandProperty 'Index' -First $TargetOpenIndexCount
+                    $TargetClosedIndexes = $HotIndexes | Select-Object -First $TargetOpenIndexCount
+                    
                     # Establish an array of an array of target indexes to support bulk close operations
                     if ($Stage.Bulk_Close -le 0) {
                         $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
                     } else {
-                        $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments $Stage.Bulk_Close
+                        [int32]$SegmentCount = $TargetClosedIndexes.count / $Stage.Bulk_Close
+                        $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments $SegmentCount
                     }
                     
 
                     $HotIndexOpen = $HotIndexes.count
                     $HotIndexClosed = $TargetClosedIndexes.count
                     ForEach ($TargetIndices in $CloseIndexSegments) {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndex.Index)"
+                        
                         if ($TargetIndices.count -gt 1) {
-                            $Indices = $([String]::Join(", ",$TargetIndices))
-                            write-host $Indices
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing bulk indices: $($TargetIndex.count)"
+                            $Indices = $([String]::Join(",",$TargetIndices.index))
                             $CloseStatus = Close-EsIndex -Index $Indices
                         } else {
-                            write-host $TargetIndices
-                            $CloseStatus = Close-EsIndex -Index $TargetIndices
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndex.Index)"
+                            $CloseStatus = Close-EsIndex -Index $TargetIndices.index
                         }
                         
                         if ($CloseStatus.acknowledged) {
@@ -627,15 +629,37 @@ ForEach ($Stage in $Stages) {
             $Indexes = Get-EsIndex
             if ($ClosedHotIndexes) {
                 New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Begin Step" -logMessage "Opening hot indicies to restore production environment state."
+
                 $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
                 $HotIndexOpen = $HotIndexes.count
                 $HotIndexClosed = $ClosedHotIndexes.count
-                ForEach ($TargetIndex in $ClosedHotIndexes) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Opening Index: $($TargetIndex.Index)"
-                    $OpenStatus = Open-EsIndex -Index $TargetIndex.Index
+                
+                $TargetOpenIndexes = $ClosedHotIndexes
+                    
+                # Establish an array of an array of target indexes to support bulk close operations
+                if ($Stage.Bulk_Open -le 0) {
+                    $OpenIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
+                } else {
+                    [int32]$SegmentCount = $TargetOpenIndexes.count / $Stage.Bulk_Open
+                    $OpenIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments $SegmentCount
+                }
+                
+
+                $HotIndexOpen = $HotIndexes.count
+                $HotIndexClosed = $TargetOpenIndexes.count
+                ForEach ($TargetIndices in $OpenIndexSegments) {
+                    if ($TargetIndices.count -gt 1) {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing bulk indices: $($TargetIndex.count)"
+                        $Indices = $([String]::Join(",",$TargetIndices.index))
+                        $OpenStatus = Open-EsIndex -Index $Indices
+                    } else {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing Index: $($TargetIndex.Index)"
+                        $OpenStatus = Open-EsIndex -Index $TargetIndices.index
+                    }
+                
                     if ($OpenStatus.acknowledged) {
-                        $HotIndexOpen += 1
-                        $HotIndexClosed -= 1
+                        $HotIndexOpen += $TargetIndices.count
+                        $HotIndexClosed -= $TargetIndices.count
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($($ClosedHotIndexes.count)+$IndexSize)" -logMessage "Open Status: Completed" 
                         Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
                     } else {
