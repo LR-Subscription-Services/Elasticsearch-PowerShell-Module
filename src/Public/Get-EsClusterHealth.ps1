@@ -19,21 +19,22 @@ Function Get-EsClusterHealth {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $false, Position = 0)]
-        [string] $Index
+        [string] $Index,
+
+        [Parameter(Mandatory = $false, Position = 1)]
+        [string] $Url
     )
     Begin {
 
         $Headers = [Dictionary[string,string]]::new()
         $Headers.Add("Content-Type","application/json")
 
-        $Master = Get-EsMaster
-
-        if ($Master.ip) {
-            $BaseUrl = "http://" + $Master.ip + ":9200"
+        if ($Url) {
+            $BaseUrl = $Url
         } else {
             $BaseUrl = "http://localhost:9200"
         }
-
+        
         $Method = "Get"
     }
     
