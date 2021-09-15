@@ -125,7 +125,7 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = "Verify"
     IndexSize = -1
-    Bulk_Open = 4
+    Bulk_Open = 10
     Bulk_Close = 10
     Routing = "all"
     MaxRetry = 40
