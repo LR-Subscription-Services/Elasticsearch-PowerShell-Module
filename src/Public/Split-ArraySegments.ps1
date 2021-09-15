@@ -19,26 +19,33 @@ function Split-ArraySegments {
     Param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, Position = 0)]
         [ValidateNotNull()]
-        $InputArray,
+        [object[]]$InputArray,
         
         [Parameter(Mandatory = $true, Position = 1)]
         [ValidateNotNull()]
         [int32] $Segments
     )
+    Begin {
+        $ArrayList = New-Object System.Collections.ArrayList
+        $Count = 0 
 
-    $ArrayList = New-Object System.Collections.ArrayList
-    $Count = 0 
-
-    # Establish ArrayList Objects 
-    0..($Segments-1) | ForEach-Object {
-        [void]$ArrayList.Add((New-Object System.Collections.ArrayList))
+        if ($Segments -le 0) {
+            $Segments = 1
+        }
     }
+    
+    Process {
+        # Establish ArrayList Objects 
+        0..($Segments-1) | ForEach-Object {
+            [void]$ArrayList.Add((New-Object System.Collections.ArrayList))
+        }
 
-    # Populate ArrayLists
-    foreach($Entry in $InputArray) {
-       [void]$ArrayList[$Count % $Segments].Add($Entry) 
-       $Count++ 
+        # Populate ArrayLists
+        foreach($Entry in $InputArray) {
+        [void]$ArrayList[$Count % $Segments].Add($Entry) 
+        $Count++ 
+        }
+
+        return ,$ArrayList.ToArray()
     }
-
-    return ,$ArrayList.ToArray()
 }
