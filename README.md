@@ -3,4 +3,4 @@ Eric's unofficial PowerShell module for leveraging ElasticSearch REST API endpoi
 
 
 # Notice
-This resource is in-development and is not recommended for use at this time.  Proceed with caution.
+This resource is in-development and is not recommended for use at this time.  Proceed with caution. 
