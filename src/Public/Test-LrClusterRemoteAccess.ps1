@@ -9,7 +9,7 @@ Function Test-LrClusterRemoteAccess {
 
         [string] $UserName = 'logrhythm',
 
-        [string] $KeyFilePath = '~/.ssh/id_rsa'
+        [string] $Path = '~/.ssh/id_rsa'
     )
     Begin {
         # Establish existing PS Sessions
