@@ -2,20 +2,30 @@ Function Invoke-RunUserCommand {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $true, Position = 0)]
-        [object] $Stage,
+        [string[]] $Commands,
 
         [Parameter(Mandatory = $true, Position = 1)]
         [object] $Nodes
     )
-    ForEach ($Node in $Nodes) {
-        if ($Stage.UserCommands) {
-            $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "Begin Step"
-            ForEach ($UserCommand in $Stage.UserCommands) {
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logMessage "Command: $($UserCommand)"
-                $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c $UserCommand} -ErrorAction SilentlyContinue
+    Begin {}
+
+    Process {
+        ForEach ($Node in $Nodes) {
+            if ($Commands) {
+                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "Begin Step"
+                $CmdCount = 1
+                ForEach ($UserCommand in $Commands) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Command Number: $($CmdCount)" -logMessage "Command: $($UserCommand)"
+                    Try {
+                        $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c $UserCommand} -ErrorAction SilentlyContinue
+                    } Catch {
+                        write-host $_
+                    }
+                    $CmdCount += 1
+                }
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "End Step"
             }
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "End Step"
         }
     }
 }
