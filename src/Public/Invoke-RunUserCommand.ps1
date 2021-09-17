@@ -5,6 +5,9 @@ Function Invoke-RunUserCommand {
         [string[]] $Commands,
 
         [Parameter(Mandatory = $true, Position = 1)]
+        [string] $Stage,
+
+        [Parameter(Mandatory = $true, Position = 2)]
         [object] $Nodes
     )
     Begin {}
@@ -13,10 +16,10 @@ Function Invoke-RunUserCommand {
         ForEach ($Node in $Nodes) {
             if ($Commands) {
                 $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "Begin Step"
+                New-ProcessLog -logSev i -logStage $Stage -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "Begin Step"
                 $CmdCount = 1
                 ForEach ($UserCommand in $Commands) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Command Number: $($CmdCount)" -logMessage "Command: $($UserCommand)"
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Command Number: $($CmdCount)" -logMessage "Command: $($UserCommand)"
                     Try {
                         $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c $UserCommand} -ErrorAction SilentlyContinue
                     } Catch {
@@ -24,7 +27,7 @@ Function Invoke-RunUserCommand {
                     }
                     $CmdCount += 1
                 }
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "End Step"
+                New-ProcessLog -logSev i -logStage $Stage -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "End Step"
             }
         }
     }
