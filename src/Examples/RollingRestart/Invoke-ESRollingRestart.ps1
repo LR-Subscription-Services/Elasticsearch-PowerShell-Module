@@ -2,6 +2,7 @@ using namespace System
 using namespace System.IO
 using namespace System.Collections.Generic
 
+$SSHKey = '~/.ssh/id_rsa'
 
 # User driven command variables, where a user can inject OS commands in any of the stages.
 $Pre_UserCommands = [List[string]]::new()
@@ -10,7 +11,7 @@ $Running_UserCommands = [List[string]]::new()
 $Completed_UserCommands = [List[string]]::new()
 $End_UserCommands = [List[string]]::new()
 
-#$Start_UserCommands.add('sudo yum update -y')
+$Running_UserCommands.add('sudo yum update -y')
 
 # Timers to work into 1.5
 # 
@@ -50,7 +51,7 @@ if ($RunAsServer) {
 
 # Verify SSH key established
 #$(Invoke-Command -ScriptBlock {bash -c "eval `"`$(ssh-agent)`""})
-$(Invoke-Command -ScriptBlock {bash -c "ssh-add ~/.ssh/id_rsa"})
+$(Invoke-Command -ScriptBlock {bash -c "ssh-add $SSHKey"})
 
 $SSHConfigStatus = Add-LrHostSSHConfig -Path '/home/logrhythm/.ssh/config'
 
@@ -210,6 +211,13 @@ ForEach ($Stage in $Stages) {
     }
     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Target: $($Stage.Routing)" -logExField1 'End'
 
+    
+    if ($Stage.UserCommands.count -ge 1) {
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
+        Invoke-RunUserCommand -Commands $Stage.UserCommands -Nodes $RestartOrder
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
+    }
+    
 
     # Status to support validating transition to the next stage
     $TransitionStage = $false
@@ -223,7 +231,7 @@ ForEach ($Stage in $Stages) {
             # Begin with validating remote access into the DX cluster's nodes
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'SSH Verification' -logMessage "Target: $($Stage.SSH)"
 
-            $rs_SessionStatus = Test-LrClusterRemoteAccess -HostNames $es_ClusterHosts.ipaddr
+            $rs_SessionStatus = Test-LrClusterRemoteAccess -HostNames $es_ClusterHosts.ipaddr -Path $SSHKey
             ForEach ($rs_SessionStat in $rs_SessionStatus) {
                 if ($rs_SessionStat.Id -eq -1) {
                     New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'SSH Verification' -logMessage "$($rs_SessionStat.Error)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
@@ -233,7 +241,7 @@ ForEach ($Stage in $Stages) {
                     $CurrentRetry = 0
                     Do {
                         start-sleep $RetrySleep
-                        $rs_SessionStat = Test-LrClusterRemoteAccess -HostNames $rs_SessionStat.ComputerName
+                        $rs_SessionStat = Test-LrClusterRemoteAccess -HostNames $rs_SessionStat.ComputerName -Path $SSHKey
                         if ($rs_SessionStat.Id -eq -1) {
                             $CurrentRetry += 1
                             New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'SSH Verification' -logMessage "$($rs_SessionStat.Error)" -logExField1 "Session State: $($rs_SessionStat.State)" -logExField2 "Target: $($rs_SessionStat.ComputerName)"
@@ -270,10 +278,6 @@ ForEach ($Stage in $Stages) {
                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logMessage "Current: $es_ClusterStatus  Target: $($Stage.ClusterStatus)"
             }
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logExField1 'End Step' -logMessage "Target Requirement Met"
-
-            if ($Stage.UserCommands) {
-                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
-            }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
@@ -509,7 +513,7 @@ ForEach ($Stage in $Stages) {
                     }
 
                     # Add in restart to system here, using $($Node.ipaddr)
-                    $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                    $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr) -Path $SSHKey
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Flush' -Node $($Node.hostname) -logMessage "Submitting cluster flush to Elasticsearch"
                     $FlushResults = Invoke-EsFlushSync
 
@@ -565,7 +569,7 @@ ForEach ($Stage in $Stages) {
                         $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
                         if ($HostOnline) {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Status: Online"
-                            $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                            $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr) -Path $SSHKey
                             if ($NodeSession.Availability -like "Available") {
                                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Node reachable with SSH authentication."
                                 Try {
