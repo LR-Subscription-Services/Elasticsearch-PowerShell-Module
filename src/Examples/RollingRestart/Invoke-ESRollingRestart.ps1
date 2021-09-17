@@ -73,6 +73,7 @@ $Stages.add([PSCustomObject]@{
     Routing = "all"
     MaxRetry = 40
     RetryWait = 15
+    NodeDelayTimeout = $null
     Flush = $false
     ManualCheck = $true
     UserCommands = $Pre_UserCommands
@@ -102,6 +103,7 @@ $Stages.add([PSCustomObject]@{
     Routing = "new_primaries"
     MaxRetry = 90
     RetryWait = 5
+    NodeDelayTimeout = $null
     Flush = $false
     ManualCheck = $false
     UserCommands = $Running_UserCommands
@@ -131,6 +133,7 @@ $Stages.add([PSCustomObject]@{
     Routing = "all"
     MaxRetry = 40
     RetryWait = 15
+    NodeDelayTimeout = $null
     Flush = $false
     ManualCheck = $false
     UserCommands = $End_UserCommands
@@ -218,6 +221,17 @@ ForEach ($Stage in $Stages) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
     }
     
+
+    if ($Stage.NodeDelayTimeout) {
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "Begin Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
+        $UpdateVerify = Update-EsNodeDelayTimeout -Value $Stage.NodeDelayTimeout -Type 's'
+        if ($UpdateVerify.acknowledged) {
+            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Successfully updated Node Timeout Delay"
+        } else {
+            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Unable to update Node Timeout Delay"
+        }
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "End Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
+    }
 
     # Status to support validating transition to the next stage
     $TransitionStage = $false
@@ -310,21 +324,6 @@ ForEach ($Stage in $Stages) {
             $es_ClusterHealth = Get-EsClusterHealth
             $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
             $lr_ConsulLocks = Get-LrConsulLocks
-
-            if ($Stage.NodeDelayTimeout) {                                 
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'ES Timeout Delay' -logExField1 "Begin Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
-                $UpdateVerify = Update-EsNodeDelayTimeout -Value $Stage.NodeDelayTimeout -Type 's'
-                if ($UpdateVerify.acknowledged) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'ES Timeout Delay' -logMessage "Successfully updated Node Timeout Delay"
-                } else {
-                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'ES Timeout Delay' -logMessage "Unable to update Node Timeout Delay"
-                }
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'ES Timeout Delay' -logExField1 "End Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
-            }
-
-            if ($Stage.UserCommands) {
-                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
-            }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
@@ -601,11 +600,7 @@ ForEach ($Stage in $Stages) {
 
                         Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -CurrentNode $Node -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
                     }
-                    
-                    if ($Stage.UserCommands) {
-                        Invoke-RunUserCommand -Stage $Stage -Nodes $Node
-                    }
-                    
+                                        
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'Begin Step' -logExField1 "Node: $($Node.hostname)"
                     if ($Stage.ManualCheck -eq $true -or $AlertCheck -eq $true) {
                         $UserDecision = Invoke-SelectionPrompt -Title "Node Complete" -Question "Do you want to proceed onto the next node?"
@@ -717,21 +712,6 @@ ForEach ($Stage in $Stages) {
                 New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "End Step" -logMessage "Opening hot indicies to restore production environment state."
             }
 
-            if ($Stage.NodeDelayTimeout) {
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "Begin Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
-                $UpdateVerify = Update-EsNodeDelayTimeout -Value $Stage.NodeDelayTimeout -Type 's'
-                if ($UpdateVerify.acknowledged) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Successfully updated Node Timeout Delay"
-                } else {
-                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logMessage "Unable to update Node Timeout Delay"
-                }
-                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "End Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
-            }
-
-            if ($Stage.UserCommands) {
-                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
-            }
-
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
@@ -760,10 +740,6 @@ ForEach ($Stage in $Stages) {
             $IndexSettings = Get-EsSettings
 
             $Indexes = Get-EsIndex
-
-            if ($Stage.UserCommands) {
-                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder
-            }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
