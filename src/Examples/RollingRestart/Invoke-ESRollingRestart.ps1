@@ -2,7 +2,7 @@ using namespace System
 using namespace System.IO
 using namespace System.Collections.Generic
 
-$SSHKey = '~/.ssh/id_rsa'
+$SSHKey = '~/.ssh/id_ecdsa'
 
 # User driven command variables, where a user can inject OS commands in any of the stages.
 $Pre_UserCommands = [List[string]]::new()

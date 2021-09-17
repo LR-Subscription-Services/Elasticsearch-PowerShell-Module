@@ -9,7 +9,7 @@ Function Test-LrClusterRemoteAccess {
 
         [string] $UserName = 'logrhythm',
 
-        [string] $Path = '~/.ssh/id_rsa'
+        [string] $Path = '~/.ssh/id_ecdsa'
     )
     Begin {
         # Establish existing PS Sessions
@@ -30,7 +30,7 @@ Function Test-LrClusterRemoteAccess {
         ForEach ($hostname in $hostnames) {
             if ($CurrentPSSessions.ComputerName -notcontains $hostname) {
                 try {
-                    $PSSession = New-PSSession -HostName $hostname -UserName $UserName -KeyFilePath $KeyFilePath -ErrorAction Stop
+                    $PSSession = New-PSSession -HostName $hostname -UserName $UserName -KeyFilePath $Path -ErrorAction Stop
                     $Results.add($PSSession)
                 } Catch {
                     $ConnectionResults = $(Test-Connection -IPv4 $HostName -Quiet)
