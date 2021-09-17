@@ -8,6 +8,9 @@ Function Invoke-RunUserCommand {
         [string] $Stage,
 
         [Parameter(Mandatory = $true, Position = 2)]
+        [string] $SSHKeyPath,
+
+        [Parameter(Mandatory = $true, Position = 3)]
         [object] $Nodes
     )
     Begin {}
@@ -15,7 +18,7 @@ Function Invoke-RunUserCommand {
     Process {
         ForEach ($Node in $Nodes) {
             if ($Commands) {
-                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr)
+                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr) -Path $SSHKeyPath
                 New-ProcessLog -logSev i -logStage $Stage -logStep 'Run User Command' -logExField2 "Node: $($Node.hostname)" -logMessage "Begin Step"
                 $CmdCount = 1
                 ForEach ($UserCommand in $Commands) {

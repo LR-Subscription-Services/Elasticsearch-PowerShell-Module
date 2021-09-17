@@ -214,7 +214,7 @@ ForEach ($Stage in $Stages) {
     
     if ($Stage.UserCommands.count -ge 1) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
-        Invoke-RunUserCommand -Commands $Stage.UserCommands -Nodes $RestartOrder -Stage $($Stage.Name)
+        Invoke-RunUserCommand -Commands $Stage.UserCommands -Nodes $RestartOrder -Stage $($Stage.Name) -SSHKeyPath $SSHKey
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
     }
     
