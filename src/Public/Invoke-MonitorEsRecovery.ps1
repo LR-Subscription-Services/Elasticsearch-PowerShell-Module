@@ -31,7 +31,7 @@ Function Invoke-MonitorEsRecovery {
         if ($MaxAttempts) {
             $RetryMax = $MaxAttempts
         } else {
-            $RetryMax = 20
+            $RetryMax = 200
         }
 
         if ($null -eq $CurrentNode) {
@@ -111,7 +111,9 @@ Function Invoke-MonitorEsRecovery {
                         # Print a Unassigned Shard status update periodically.
                         if (($RetryCounter % 5) -eq 0) {
                             if ($RecoveryList -ne $LastRecovery) {
-                                $RetryMax += 1
+                                if ($RetryMax -ne -1) {
+                                    $RetryMax += 1
+                                }
                                 New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recovery Progress' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                             } else {
                                 if ($RetryCounter -eq 1) {
@@ -125,7 +127,9 @@ Function Invoke-MonitorEsRecovery {
                 }
             } elseif ($CurrentUnassigned -gt 0 -and ($CurrentUnassigned -ne $LastUnassigned)) {
                 # Higher level overview of recovery progress
-                $RetryMax += 1
+                if ($RetryMax -ne -1) {
+                    $RetryMax += 1
+                }
                 New-ProcessLog -logSev i -logStage $Stage -logStep 'Unassigned Shards' -Node $($CurrentNode.hostname) -logExField1 'Recovery Progress' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
             } else {
                 if ($RetryCounter -eq 1) {
@@ -147,7 +151,13 @@ Function Invoke-MonitorEsRecovery {
             }
 
             # Increment the loop counter
-            $RetryCounter += 1
+            # If the MaxRetry is set to -1, retry indefinently.
+            if ($RetryMax -eq -1) {
+                $RetryCounter = 0
+            } else {
+                $RetryCounter += 1
+            }
+            
             $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average) 
         } until (($RetryCounter -ge $RetryMax) -or ($es_ClusterStatus -like "green") -or (($InitHistoryStats.count -eq $MaxInitConsecZero) -and ($InitHistoryStats.sum -eq 0)))
     }
