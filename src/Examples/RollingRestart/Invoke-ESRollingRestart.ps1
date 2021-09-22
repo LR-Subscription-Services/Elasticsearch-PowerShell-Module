@@ -113,8 +113,8 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
-    Bulk_Open = 4
-    Bulk_Close = 10
+    Bulk_Open = 12
+    Bulk_Close = 20
     Routing = "all"
     MaxRetry = 40
     RetryWait = 15
@@ -598,18 +598,18 @@ ForEach ($Stage in $Stages) {
                         Start-Sleep $($Stage.RetryWait)
                     } until ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime)) -or ($Count -ge $($Stage.MaxRetry)))
                     
-                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "Begin monitoring ElasticSearch nodes online" -logExField1 "Current Count: $CurrentNodeCount  Target Count: $NodeCount"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "Begin monitoring ElasticSearch nodes online" -logExField1 "Target Count: $NodeCount"
                     $CurrentNodeCount = $null
                     Do {
                         Try {
                             $CurrentNodeCount = Get-EsClusterHealth | Select-Object -ExpandProperty number_of_nodes
-                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logExField1 "Target: $NodeCount" -logMessage "Current: $CurrentNodeCount"
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Node Count' -logExField1 "Target: $NodeCount" -logMessage "Current: $CurrentNodeCount"
                         } Catch {
                             New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logExField1 "Target: $NodeCount" -logMessage "Unable to retrieve ElasticSearch Node Count"
                         }
                         Start-Sleep $($Stage.RetryWait)
                     } Until ($CurrentNodeCount -eq $NodeCount)
-                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "End monitoring ElasticSearch nodes online" -logExField1 "Current Count: $CurrentNodeCount  Target Count: $NodeCount"
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "End monitoring ElasticSearch nodes online" -logExField1 "Current Count: $CurrentNodeCount  Target Count: $NodeCount"
 
                     if (($Count -ge $Stage.MaxRetry) -and ($Stage.MaxRetry -ne -1)) {
                         New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Max retries reached"
