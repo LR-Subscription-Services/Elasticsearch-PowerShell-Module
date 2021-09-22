@@ -101,7 +101,7 @@ $Stages.add([PSCustomObject]@{
     Bulk_Open = 2
     Bulk_Close = 10
     Routing = "new_primaries"
-    MaxRetry = 90
+    MaxRetry = -1
     RetryWait = 5
     NodeDelayTimeout = $null
     Flush = $false
@@ -538,7 +538,7 @@ ForEach ($Stage in $Stages) {
                             
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -Node $($Node.hostname) -logMessage "Command: restart-computer"
                             
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Begin monitoring host online/offline status." 
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Begin monitoring host online/offline status" 
                             Do {
                                 $CurrentUptime = $null
                                 $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
@@ -568,8 +568,7 @@ ForEach ($Stage in $Stages) {
                     }
 
                     $Count = 0
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Begin monitoring host online/offline status." 
-                    $CurrentNodeCount = $null
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Begin monitoring host online/offline status" 
                     do {
                         # If the MaxRetry is set to -1, retry indefinently.
                         if ($Stage.MaxRetry -eq -1) {
@@ -590,12 +589,6 @@ ForEach ($Stage in $Stages) {
                                 } Catch {
                                     $_
                                 }
-                                Try {
-                                    $CurrentNodeCount = Get-EsClusterHealth | Select-Object -ExpandProperty number_of_nodes
-                                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "Nodes Online: $CurrentNodeCount  Target Node Count: $NodeCount"
-                                } Catch {
-                                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "Unable to retrieve ElasticSearch Node Count"
-                                }
                             } else {
                                 New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Node reachable.  Unable to authenticate."    
                             }
@@ -603,9 +596,22 @@ ForEach ($Stage in $Stages) {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Status: Offline"
                         }
                         Start-Sleep $($Stage.RetryWait)
-                    } until ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime) -and ($CurrentNodeCount -eq $NodeCount)) -or ($Count -ge $($Stage.MaxRetry)))
+                    } until ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime)) -or ($Count -ge $($Stage.MaxRetry)))
                     
-                    if ($Count -ge $($Stage.MaxRetry)) {
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "Begin monitoring ElasticSearch nodes online" -logExField1 "Current Count: $CurrentNodeCount  Target Count: $NodeCount"
+                    $CurrentNodeCount = $null
+                    Do {
+                        Try {
+                            $CurrentNodeCount = Get-EsClusterHealth | Select-Object -ExpandProperty number_of_nodes
+                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logExField1 "Target: $NodeCount" -logMessage "Current: $CurrentNodeCount"
+                        } Catch {
+                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logExField1 "Target: $NodeCount" -logMessage "Unable to retrieve ElasticSearch Node Count"
+                        }
+                        Start-Sleep $($Stage.RetryWait)
+                    } Until ($CurrentNodeCount -eq $NodeCount)
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "End monitoring ElasticSearch nodes online" -logExField1 "Current Count: $CurrentNodeCount  Target Count: $NodeCount"
+
+                    if (($Count -ge $Stage.MaxRetry) -and ($Stage.MaxRetry -ne -1)) {
                         New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Max retries reached"
                         $AlertCheck -eq $true
                     } else {
