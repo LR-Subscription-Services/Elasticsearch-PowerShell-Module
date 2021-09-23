@@ -94,9 +94,9 @@ Function Invoke-MonitorEsRecovery {
                             $IndexRecoveryAggregate = [PSCustomObject]@{
                                 Index = $Index
                                 Shards = $IndexRecovery.count
-                                File = $IndexRecovery.files_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
-                                Bytes = $IndexRecovery.bytes_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
-                                Trans = $IndexRecovery.translog_ops_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average
+                                File = [math]::Round($($IndexRecovery.files_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average),2)
+                                Bytes = [math]::Round($($IndexRecovery.bytes_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average),2)
+                                Trans = [math]::Round($($IndexRecovery.translog_ops_percent.replace('%','') | Measure-Object -Average | Select-Object -ExpandProperty Average),2)
                             }
                             $RecoveryList.add($IndexRecoveryAggregate)
                         } else {
