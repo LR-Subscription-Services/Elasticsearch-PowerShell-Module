@@ -68,7 +68,7 @@ $Stages.add([PSCustomObject]@{
     ClusterHosts = $(Get-LrClusterHosts)
     SSH = "Verify"
     IndexSize = -1
-    Bulk_Open = 1
+    Bulk_Open = 5
     Bulk_Close = 10
     Routing = "all"
     MaxRetry = 40
@@ -83,7 +83,7 @@ $Stages.add([PSCustomObject]@{
     ClusterStatus = "Green"
     SSH = $null
     IndexSize = -1
-    Bulk_Open = 1
+    Bulk_Open = 5
     Bulk_Close = 10
     Routing = "new_primaries"
     MaxRetry = 40
