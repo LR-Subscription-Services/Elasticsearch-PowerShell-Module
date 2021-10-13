@@ -20,7 +20,6 @@ Function Invoke-MonitorEsRecovery {
         [object] $CurrentNode
     )
     Begin {
-        $InitHistory = [List[int]]::new()
         $TC = (Get-Culture).TextInfo
         If ($Sleep) {
             $RetrySleep = $Sleep
@@ -77,9 +76,7 @@ Function Invoke-MonitorEsRecovery {
                 #New-ProcessLog -logSev i -logStage $Stage -logStep 'Orphaned Shards' -logMessage "Sleeping for 30 seconds"
                 #start-sleep 30
             }
-            # Store initialization history
-            $InitHistory.Add($($ClusterHealth.initializing_shards))
-
+            
             # Update current Unassigned Shards details
             $CurrentUnassigned = $($ClusterHealth.unassigned_shards)
 
@@ -157,8 +154,6 @@ Function Invoke-MonitorEsRecovery {
             } else {
                 $RetryCounter += 1
             }
-            
-            $InitHistoryStats = $($InitHistory | Select-Object -Last 10 | Measure-Object -Maximum -Minimum -Sum -Average) 
-        } until (($RetryCounter -ge $RetryMax) -or ($es_ClusterStatus -like "green") -or (($InitHistoryStats.count -eq $MaxInitConsecZero) -and ($InitHistoryStats.sum -eq 0)))
+        } until ((($RetryCounter -ge $RetryMax) -and ($RetryMax -ne -1)) -or ($es_ClusterStatus -like "green"))
     }
 }
