@@ -71,7 +71,7 @@ $Stages.add([PSCustomObject]@{
     Bulk_Open = 5
     Bulk_Close = 10
     Routing = "all"
-    MaxRetry = 40
+    MaxRetry = -1
     RetryWait = 15
     NodeDelayTimeout = $null
     Flush = $false
@@ -86,7 +86,7 @@ $Stages.add([PSCustomObject]@{
     Bulk_Open = 5
     Bulk_Close = 10
     Routing = "new_primaries"
-    MaxRetry = 40
+    MaxRetry = -1
     RetryWait = 15
     NodeDelayTimeout = 60
     Flush = $true
@@ -116,7 +116,7 @@ $Stages.add([PSCustomObject]@{
     Bulk_Open = 12
     Bulk_Close = 20
     Routing = "all"
-    MaxRetry = 40
+    MaxRetry = -1
     RetryWait = 15
     NodeDelayTimeout = 300
     Flush = $false
@@ -131,7 +131,7 @@ $Stages.add([PSCustomObject]@{
     Bulk_Open = 10
     Bulk_Close = 10
     Routing = "all"
-    MaxRetry = 40
+    MaxRetry = -1
     RetryWait = 15
     NodeDelayTimeout = $null
     Flush = $false
