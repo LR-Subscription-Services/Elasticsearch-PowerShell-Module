@@ -5,13 +5,23 @@ using namespace System.Collections.Generic
 $SSHKey = '~/.ssh/id_ecdsa'
 
 # User driven command variables, where a user can inject OS commands in any of the stages.
-$Pre_UserCommands = [List[string]]::new()
-$Start_UserCommands = [List[string]]::new()
-$Running_UserCommands = [List[string]]::new()
-$Completed_UserCommands = [List[string]]::new()
-$End_UserCommands = [List[string]]::new()
+$Config_UserCommands = [List[object]]::new()
+$Init_UserCommands = [List[object]]::new()
+$Run_UserCommands = [List[object]]::new()
+$Comp_UserCommands = [List[object]]::new()
+$Veri_UserCommands = [List[object]]::new()
 
-$Running_UserCommands.add('sudo yum update -y')
+# Example to run the PowerShell cmdlet 'get-host' on each node during the Config stage.
+$Config_UserCommands.add([PSCustomObject]@{
+    Type = 'pwsh'
+    Command = 'get-host'
+})
+
+# Example to run the Bash command 'sudo yum update -y' on each node during the Running stage.
+$Run_UserCommands.add([PSCustomObject]@{
+    Type = 'bash'
+    Command = 'sudo yum update -y'
+})
 
 # Timers to work into 1.5
 # 
@@ -76,7 +86,7 @@ $Stages.add([PSCustomObject]@{
     NodeDelayTimeout = $null
     Flush = $false
     ManualCheck = $true
-    UserCommands = $Pre_UserCommands
+    UserCommands = $Config_UserCommands
 })
 $Stages.add([PSCustomObject]@{
     Name = "Initialize"
@@ -91,7 +101,7 @@ $Stages.add([PSCustomObject]@{
     NodeDelayTimeout = 60
     Flush = $true
     ManualCheck = $false
-    UserCommands = $Start_UserCommands
+    UserCommands = $Init_UserCommands
 })
 $Stages.add([PSCustomObject]@{
     Name = "Executing"
@@ -106,7 +116,7 @@ $Stages.add([PSCustomObject]@{
     NodeDelayTimeout = $null
     Flush = $false
     ManualCheck = $false
-    UserCommands = $Running_UserCommands
+    UserCommands = $Run_UserCommands
 })
 $Stages.add([PSCustomObject]@{
     Name = "Verify"
@@ -121,7 +131,7 @@ $Stages.add([PSCustomObject]@{
     NodeDelayTimeout = 300
     Flush = $false
     ManualCheck = $false
-    UserCommands = $Completed_UserCommands
+    UserCommands = $Comp_UserCommands
 })
 $Stages.add([PSCustomObject]@{
     Name = "Complete"
@@ -136,7 +146,7 @@ $Stages.add([PSCustomObject]@{
     NodeDelayTimeout = $null
     Flush = $false
     ManualCheck = $false
-    UserCommands = $End_UserCommands
+    UserCommands = $Veri_UserCommands
 })
 
 
@@ -212,15 +222,7 @@ ForEach ($Stage in $Stages) {
         } 
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Current: $CurrentEsRouting Target: $($Stage.Routing)"
     }
-    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Target: $($Stage.Routing)" -logExField1 'End'
-
-    
-    if ($Stage.UserCommands.count -ge 1) {
-        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
-        Invoke-RunUserCommand -Commands $Stage.UserCommands -Nodes $RestartOrder -Stage $($Stage.Name) -SSHKeyPath $SSHKey
-        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
-    }
-    
+    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -logMessage "Target: $($Stage.Routing)" -logExField1 'End'    
 
     if ($Stage.NodeDelayTimeout) {
         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Recovery Delay Timeout' -logExField1 "Begin Step" -logMessage "Setting ElasticSearch Node Timeout Delay to $($Stage.NodeDelayTimeout) seconds" 
@@ -293,6 +295,12 @@ ForEach ($Stage in $Stages) {
             }
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Health Validation' -logExField1 'End Step' -logMessage "Target Requirement Met"
 
+            if ($Stage.UserCommands.count -ge 1) {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
+                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder -SSHKeyPath $SSHKey
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
+            }
+
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Elasticsearch Rolling Restart" -Question "Are you sure you want to proceed?"
@@ -324,6 +332,12 @@ ForEach ($Stage in $Stages) {
             $es_ClusterHealth = Get-EsClusterHealth
             $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
             $lr_ConsulLocks = Get-LrConsulLocks
+
+            if ($Stage.UserCommands.count -ge 1) {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
+                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder -SSHKeyPath $SSHKey
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
+            }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
@@ -534,6 +548,13 @@ ForEach ($Stage in $Stages) {
                         
                         if ($null -ne $BaseUptime) {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Current Uptime: $($BaseUptime.tostring())"
+                            
+                            if ($Stage.UserCommands.count -ge 1) {
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
+                                Invoke-RunUserCommand -Stage $Stage -Nodes $Node -SSHKeyPath $SSHKey
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
+                            }
+
                             $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "sudo shutdown -r now"} -ErrorAction SilentlyContinue
                             
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -Node $($Node.hostname) -logMessage "Command: restart-computer"
@@ -737,6 +758,12 @@ ForEach ($Stage in $Stages) {
                 New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "End Step" -logMessage "Opening hot indicies to restore production environment state."
             }
 
+            if ($Stage.UserCommands.count -ge 1) {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
+                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder -SSHKeyPath $SSHKey
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
+            }
+
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
                 $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
@@ -765,6 +792,12 @@ ForEach ($Stage in $Stages) {
             $IndexSettings = Get-EsSettings
 
             $Indexes = Get-EsIndex
+
+            if ($Stage.UserCommands.count -ge 1) {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
+                Invoke-RunUserCommand -Stage $Stage -Nodes $RestartOrder -SSHKeyPath $SSHKey
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
+            }
 
             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
             if ($Stage.ManualCheck -eq $true) {
