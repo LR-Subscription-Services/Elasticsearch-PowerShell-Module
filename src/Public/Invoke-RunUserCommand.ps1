@@ -40,6 +40,7 @@ Function Invoke-RunUserCommand {
                             New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Type: Error" -logMessage "Command type error.  Submitted type: $($UserCommand.Type)"
                         }
                     }
+                    write-host $HostResult
                     $CmdCount += 1
                 }
             } else {
