@@ -23,7 +23,7 @@ Function Invoke-RunUserCommand {
                         'bash' {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Type: Bash" -logMessage "Command: $($UserCommand.Command)"
                             Try {
-                                $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {& $args[0] $args[1] $args[2]} -ArgumentList 'bash', '-c', $UserCommand.Command -ErrorAction SilentlyContinue
+                                Invoke-Command -Session $NodeSession -ScriptBlock {& $args[0] $args[1] $args[2]} -ArgumentList 'bash', '-c', $UserCommand.Command -ErrorAction SilentlyContinue
                             } Catch {
                                 write-host $_
                             }
@@ -31,7 +31,7 @@ Function Invoke-RunUserCommand {
                         'pwsh' {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Type: Pwsh" -logMessage "Command: $($UserCommand.Command)"
                             try {
-                                $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {& $args[0]} -ArgumentList $UserCommand.Command -ErrorAction SilentlyContinue
+                                Invoke-Command -Session $NodeSession -ScriptBlock {& $args[0]} -ArgumentList $UserCommand.Command -ErrorAction SilentlyContinue
                             } Catch {
                                 write-host $_
                             }
@@ -40,7 +40,6 @@ Function Invoke-RunUserCommand {
                             New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Run User Command' -logExField1 "Node: $($Node.hostname)" -logExField2 "Type: Error" -logMessage "Command type error.  Submitted type: $($UserCommand.Type)"
                         }
                     }
-                    $HostResult
                     $CmdCount += 1
                 }
             } else {
