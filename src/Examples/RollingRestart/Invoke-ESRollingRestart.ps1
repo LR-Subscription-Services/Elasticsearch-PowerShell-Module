@@ -365,37 +365,41 @@ ForEach ($Stage in $Stages) {
     if ($Stage.name -Like "Executing") {
         New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -logMessage "Begin Stage"
         #Do {
-            ForEach ($Node in $RestartOrder) {
-                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -Node $($Node.hostname) -logMessage "Begin Node"
+        ForEach ($Node in $RestartOrder) {
+            New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -Node $($Node.hostname) -logMessage "Begin Node"
 
-                Try {
-                    $Indexes = Get-EsIndex
-                    New-ProcessLog -logSev d -logStage $($Stage.Name) -logStep 'Index Catalog' -logMessage "Successfully retrieved Indexes in variable Indexes"
-                } Catch {
-                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Index Catalog' -logMessage "Unable to retrieve Indexes in variable Indexes"
-                }
+            Try {
+                $Indexes = Get-EsIndex
+                New-ProcessLog -logSev d -logStage $($Stage.Name) -logStep 'Index Catalog' -logMessage "Successfully retrieved Indexes in variable Indexes"
+            } Catch {
+                New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Index Catalog' -logMessage "Unable to retrieve Indexes in variable Indexes"
+            }
 
-                Try {
-                    $NodeCount = Get-EsClusterHealth | Select-Object -ExpandProperty number_of_nodes
-                } Catch {
-                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "Unable to retrieve ElasticSearch Node Count"
-                }
+            Try {
+                $NodeCount = Get-EsClusterHealth | Select-Object -ExpandProperty number_of_nodes
+            } Catch {
+                New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "Unable to retrieve ElasticSearch Node Count"
+            }
 
-                # Optional - Close down number of cluster indexes to reduce node recovery time
-                if ($Node.type -like 'hot') {
-                    if ($Stage.IndexSize -gt 0) {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Begin Step" -logMessage "Begin closing indicies to reduce recovery time requirements" 
+            # Optional - Close down number of cluster indexes to reduce node recovery time
+            if ($Node.type -like 'hot') {
+                if ($Stage.IndexSize -gt 0) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Begin Step" -logMessage "Begin closing indicies to reduce recovery time requirements" 
 
-                        $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
-                        if ($HotIndexes.count -le $Stage.IndexSize) {
-                            $TargetOpenIndexCount = 1
-                        } else {
-                            $TargetOpenIndexCount = $HotIndexes.count - $Stage.IndexSize
-                        }
+                    $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
+                    
+                    if ($HotIndexes.count -le $Stage.IndexSize) {
+                        $TargetOpenIndexCount = 1
+                    } else {
+                        $TargetOpenIndexCount = $HotIndexes.count - $Stage.IndexSize
+                    }
 
-                        # Reduce target indexes to the quantity defined.
-                        $TargetClosedIndexes = $HotIndexes | Select-Object -First $TargetOpenIndexCount
-                        
+                    # Reduce target indexes to the quantity defined.
+                    $TargetClosedIndexes = $HotIndexes | Select-Object -First $TargetOpenIndexCount
+                    
+                    if ($TargetClosedIndexes.count -eq $HotIndexes.count) {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logMessage "Current Open Index Count equals Target Index Count" -logExField1 "End Step"
+                    } else {
                         # Establish an array of an array of target indexes to support bulk close operations
                         if ($Stage.Bulk_Close -le 0) {
                             $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
@@ -408,7 +412,7 @@ ForEach ($Stage in $Stages) {
                             }
                             $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments $SegmentCount
                         }
-                        
+
 
                         $HotIndexOpen = $HotIndexes.count
                         $HotIndexClosed = $TargetClosedIndexes.count
@@ -423,7 +427,7 @@ ForEach ($Stage in $Stages) {
                                 if ($CloseStatus.acknowledged) {
                                     $HotIndexOpen -= $TargetIndices.count
                                     $HotIndexClosed += $TargetIndices.count
-        
+
                                     ForEach ($Index in $TargetIndices) {
                                         $ClosedHotIndexes.add($Index)
                                     }                            
@@ -443,7 +447,7 @@ ForEach ($Stage in $Stages) {
                                     if ($CloseStatus.acknowledged) {
                                         $HotIndexOpen -= 1
                                         $HotIndexClosed += 1
-            
+
                                         ForEach ($Index in $TargetIndices) {
                                             $ClosedHotIndexes.add($Index)
                                         }                            
@@ -457,228 +461,229 @@ ForEach ($Stage in $Stages) {
                         }
                     }
                 }
+            }
 
-                if ($Node.type -like 'warm') {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -Node $($Node.hostname) -logMessage "Reviewing warm nodes for any open indices"
-                    $OpenWarmIndices = Get-EsIndex | Where-Object -FilterScript {($_.status -like 'open') -and ($_.rep -eq 0)}
-                    $WarmIndexClosed = 0
-                    $WarmIndexOpen = $OpenWarmIndices.index.count
+            if ($Node.type -like 'warm') {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -Node $($Node.hostname) -logMessage "Reviewing warm nodes for any open indices"
+                $OpenWarmIndices = Get-EsIndex | Where-Object -FilterScript {($_.status -like 'open') -and ($_.rep -eq 0)}
+                $WarmIndexClosed = 0
+                $WarmIndexOpen = $OpenWarmIndices.index.count
 
-                    if ($null -ne $OpenWarmIndices) {
-                        # Establish an array of an array of target indexes to support bulk close operations
-                        if ($Stage.Bulk_Close -le 0) {
-                            $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
+                if ($null -ne $OpenWarmIndices) {
+                    # Establish an array of an array of target indexes to support bulk close operations
+                    if ($Stage.Bulk_Close -le 0) {
+                        $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
+                    } else {
+                        # Default to one segment if Bulk_Close >= TargetIndexCount
+                        if ($Stage.Bulk_Close -ge $OpenWarmIndices.count) {
+                            [int32]$SegmentCount = 1
                         } else {
-                            # Default to one segment if Bulk_Close >= TargetIndexCount
-                            if ($Stage.Bulk_Close -ge $OpenWarmIndices.count) {
-                                [int32]$SegmentCount = 1
-                            } else {
-                                [int32]$SegmentCount = $OpenWarmIndices.count / $Stage.Bulk_Close
-                            }
-                            $CloseIndexSegments =  Split-ArraySegments -InputArray $OpenWarmIndices -Segments $SegmentCount
+                            [int32]$SegmentCount = $OpenWarmIndices.count / $Stage.Bulk_Close
                         }
-
-                        if ($CloseIndexSegments.count -gt 1) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($CloseIndexSegments.count)" -logExField1 "Begin Step"
-                            ForEach ($TargetIndices in $CloseIndexSegments) {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing bulk indices: $($TargetIndices.count)"
-                                $Indices = $([String]::Join(",",$TargetIndices.index))
-                                $CloseStatus = Close-EsIndex -Index $Indices
-                                
-                                if ($CloseStatus.acknowledged) {
-                                    $WarmIndexOpen -= $TargetIndices.count
-                                    $WarmIndexClosed += $TargetIndices.count
-
-                                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Completed"
-                                } else {
-                                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Incomplete"
-                                }
-                            }
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($CloseIndexSegments.count)" -logExField1 "End Step"
-                        } else {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($CloseIndexSegments.count)" -logExField1 "Begin Step"
-                            ForEach ($TargetIndices in $CloseIndexSegments) {
-                                ForEach ($Index in $TargetIndices) {
-                                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Index: $($Index.Index)"
-                                    $CloseStatus = Close-EsIndex -Index $Index.index
-                                
-                                    if ($CloseStatus.acknowledged) {
-                                        $HotIndexOpen -= 1
-                                        $HotIndexClosed += 1                          
-                                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Completed"
-                                    } else {
-                                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Incomplete"
-                                    }
-                                }
-                            }
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($CloseIndexSegments.count)" -logExField1 "End Step"
-                        }
+                        $CloseIndexSegments =  Split-ArraySegments -InputArray $OpenWarmIndices -Segments $SegmentCount
                     }
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -Node $($Node.hostname) -logMessage "Open indices review complete"
+
+                    if ($CloseIndexSegments.count -gt 1) {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($CloseIndexSegments.count)" -logExField1 "Begin Step"
+                        ForEach ($TargetIndices in $CloseIndexSegments) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing bulk indices: $($TargetIndices.count)"
+                            $Indices = $([String]::Join(",",$TargetIndices.index))
+                            $CloseStatus = Close-EsIndex -Index $Indices
+                            
+                            if ($CloseStatus.acknowledged) {
+                                $WarmIndexOpen -= $TargetIndices.count
+                                $WarmIndexClosed += $TargetIndices.count
+
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Completed"
+                            } else {
+                                New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Incomplete"
+                            }
+                        }
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($CloseIndexSegments.count)" -logExField1 "End Step"
+                    } else {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($CloseIndexSegments.count)" -logExField1 "Begin Step"
+                        ForEach ($TargetIndices in $CloseIndexSegments) {
+                            ForEach ($Index in $TargetIndices) {
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$WarmIndexOpen Closed:$($WarmIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Index: $($Index.Index)"
+                                $CloseStatus = Close-EsIndex -Index $Index.index
+                            
+                                if ($CloseStatus.acknowledged) {
+                                    $HotIndexOpen -= 1
+                                    $HotIndexClosed += 1                          
+                                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Completed"
+                                } else {
+                                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$WarmIndexClosed" -logMessage "Closing Status: Incomplete"
+                                }
+                            }
+                        }
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($CloseIndexSegments.count)" -logExField1 "End Step"
+                    }
+                }
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Warm Node Indices' -Node $($Node.hostname) -logMessage "Open indices review complete"
+            }
+
+            Do {
+                # Retrieve Cluster Status at the start of each stage's loop
+                $es_ClusterHealth = Get-EsClusterHealth
+                $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
+                $lr_ConsulLocks = Get-LrConsulLocks
+
+                # Update cluster routing to Primaries before node reboot
+                $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
+                if ($tmp_VerifyAck.acknowledged) {
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+                } else {
+                    New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
                 }
 
-                Do {
-                    # Retrieve Cluster Status at the start of each stage's loop
-                    $es_ClusterHealth = Get-EsClusterHealth
-                    $es_ClusterStatus = $($TC.ToTitleCase($($es_ClusterHealth.status)))
-                    $lr_ConsulLocks = Get-LrConsulLocks
+                # Add in restart to system here, using $($Node.ipaddr)
+                $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr) -Path $SSHKey
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Flush' -Node $($Node.hostname) -logMessage "Submitting cluster flush to Elasticsearch"
+                $FlushResults = Invoke-EsFlushSync
 
-                    # Update cluster routing to Primaries before node reboot
-                    $tmp_VerifyAck = Update-EsIndexRouting -Enable $Stage.Routing
-                    if ($tmp_VerifyAck.acknowledged) {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
-                    } else {
-                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Unable to update cluster transient settings to target: $($Stage.Routing)"
+                if ($DryRun) {
+                    $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {get-host}
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -Node $($Node.hostname) -logExField2 "Command: get-host" -logMessage "PSComputerName: $($HostResult.PSComputerName)   RunSpace: $($HostResult.Name)"
+                } else {
+                    Try {
+                        $BaseUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime}
+                    } Catch {
+                        write-host $_
                     }
-
-                    # Add in restart to system here, using $($Node.ipaddr)
-                    $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr) -Path $SSHKey
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Flush' -Node $($Node.hostname) -logMessage "Submitting cluster flush to Elasticsearch"
-                    $FlushResults = Invoke-EsFlushSync
-
-                    if ($DryRun) {
-                        $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {get-host}
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -Node $($Node.hostname) -logExField2 "Command: get-host" -logMessage "PSComputerName: $($HostResult.PSComputerName)   RunSpace: $($HostResult.Name)"
-                    } else {
-                        Try {
-                            $BaseUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime}
-                        } Catch {
-                            write-host $_
-                        }
+                    
+                    if ($null -ne $BaseUptime) {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Current Uptime: $($BaseUptime.tostring())"
                         
-                        if ($null -ne $BaseUptime) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Current Uptime: $($BaseUptime.tostring())"
-                            
-                            if ($Stage.UserCommands.count -ge 1) {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
-                                Invoke-RunUserCommand -Stage $Stage -Nodes $Node -SSHKeyPath $SSHKey
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
-                            }
-
-                            $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "sudo shutdown -r now"} -ErrorAction SilentlyContinue
-                            
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -Node $($Node.hostname) -logMessage "Command: restart-computer"
-                            
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Begin monitoring host online/offline status" 
-                            Do {
-                                $CurrentUptime = $null
-                                $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
-                                if ($HostOnline) {
-                                    $HostOnlineStatus = "Online"
-                                    Try {
-                                        $CurrentUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime} -ErrorAction SilentlyContinue
-                                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Current Uptime: $($CurrentUptime.tostring())"
-                                    } Catch {
-                                        
-                                    }
-                                    if ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime))) {
-                                        # Host has rebooted, very quickly!
-                                        $HostOnlineStatus = "Offline"
-                                    }
-                                } else {
-                                    $HostOnlineStatus = "Offline"
-                                }
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Status: $HostOnlineStatus"
-                                Start-Sleep $($Stage.RetryWait / 5)
-                            } Until (!$HostOnline)
-
-                            if (!$HostOnline) {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Target requirement met.  Node unreachable." 
-                            }
+                        if ($Stage.UserCommands.count -ge 1) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'Begin' 
+                            Invoke-RunUserCommand -Stage $Stage -Nodes $Node -SSHKeyPath $SSHKey
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'User Commands' -logMessage "Command Count: $($Stage.UserCommands.count)" -logExField1 'End'
                         }
-                    }
 
-                    $Count = 0
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Begin monitoring host online/offline status" 
-                    do {
-                        # If the MaxRetry is set to -1, retry indefinently.
-                        if ($Stage.MaxRetry -eq -1) {
-                            $Count = 0
-                        } else {
-                            $Count += 1
-                        }
+                        $HostResult = Invoke-Command -Session $NodeSession -ScriptBlock {bash -c "sudo shutdown -r now"} -ErrorAction SilentlyContinue
                         
-                        $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
-                        if ($HostOnline) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Status: Online"
-                            $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr) -Path $SSHKey
-                            if ($NodeSession.Availability -like "Available") {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Node reachable with SSH authentication."
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Run Command' -Node $($Node.hostname) -logMessage "Command: restart-computer"
+                        
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Begin monitoring host online/offline status" 
+                        Do {
+                            $CurrentUptime = $null
+                            $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
+                            if ($HostOnline) {
+                                $HostOnlineStatus = "Online"
                                 Try {
                                     $CurrentUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime} -ErrorAction SilentlyContinue
                                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Current Uptime: $($CurrentUptime.tostring())"
                                 } Catch {
-                                    $_
+                                    
+                                }
+                                if ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime))) {
+                                    # Host has rebooted, very quickly!
+                                    $HostOnlineStatus = "Offline"
                                 }
                             } else {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Node reachable.  Unable to authenticate."    
+                                $HostOnlineStatus = "Offline"
+                            }
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Status: $HostOnlineStatus"
+                            Start-Sleep $($Stage.RetryWait / 5)
+                        } Until (!$HostOnline)
+
+                        if (!$HostOnline) {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Offline" -logMessage "Target requirement met.  Node unreachable." 
+                        }
+                    }
+                }
+
+                $Count = 0
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Begin monitoring host online/offline status" 
+                do {
+                    # If the MaxRetry is set to -1, retry indefinently.
+                    if ($Stage.MaxRetry -eq -1) {
+                        $Count = 0
+                    } else {
+                        $Count += 1
+                    }
+                    
+                    $HostOnline = Test-Connection -Ipv4 $($Node.ipaddr) -Quiet
+                    if ($HostOnline) {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Status: Online"
+                        $NodeSession = Test-LrClusterRemoteAccess -Hostnames $($Node.ipaddr) -Path $SSHKey
+                        if ($NodeSession.Availability -like "Available") {
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Node reachable with SSH authentication."
+                            Try {
+                                $CurrentUptime = Invoke-Command -Session $NodeSession -ScriptBlock {get-uptime} -ErrorAction SilentlyContinue
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Current Uptime: $($CurrentUptime.tostring())"
+                            } Catch {
+                                $_
                             }
                         } else {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Status: Offline"
-                        }
-                        Start-Sleep $($Stage.RetryWait)
-                    } until ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime)) -or ($Count -ge $($Stage.MaxRetry)))
-                    
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "Begin monitoring ElasticSearch nodes online" -logExField1 "Target Count: $NodeCount"
-                    $CurrentNodeCount = $null
-                    Do {
-                        Try {
-                            $CurrentNodeCount = Get-EsClusterHealth | Select-Object -ExpandProperty number_of_nodes
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Node Count' -logExField1 "Target: $NodeCount" -logMessage "Current: $CurrentNodeCount"
-                        } Catch {
-                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logExField1 "Target: $NodeCount" -logMessage "Unable to retrieve ElasticSearch Node Count"
-                        }
-                        Start-Sleep $($Stage.RetryWait)
-                    } Until ($CurrentNodeCount -eq $NodeCount)
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "End monitoring ElasticSearch nodes online" -logExField1 "Current Count: $CurrentNodeCount  Target Count: $NodeCount"
-
-                    if (($Count -ge $Stage.MaxRetry) -and ($Stage.MaxRetry -ne -1)) {
-                        New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Max retries reached"
-                        $AlertCheck -eq $true
-                    } else {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Beginning recovery"
-                        $tmp_VerifyAck = Update-EsIndexRouting -Enable 'all'
-                        if ($tmp_VerifyAck.acknowledged) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
-                        } else {
-                            New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Unable to update cluster transient settings to target: all"
-                        }
-
-                        Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -CurrentNode $Node -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
-                    }
-                                        
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'Begin Step' -logExField1 "Node: $($Node.hostname)"
-                    if ($Stage.ManualCheck -eq $true -or $AlertCheck -eq $true) {
-                        $UserDecision = Invoke-SelectionPrompt -Title "Node Complete" -Question "Do you want to proceed onto the next node?"
-                        if ($UserDecision -eq 0) {
-                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Manual authorization granted.  Proceeding to next stage." -logExField1 "Node: $($Node.hostname)"
-                            $TransitionStage = $true
-                        } else {
-                            New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Aborting rolling restart process due to manual halt." -logExField1 "Node: $($Node.hostname)"
-                            $AbortStatus = $true
+                            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Node reachable.  Unable to authenticate."    
                         }
                     } else {
-                        $TransitionNode = $true
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logExField1 "Target: Online" -logMessage "Status: Offline"
                     }
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'End Step' -logExField1 "Node: $($Node.hostname)"
-                } While ($TransitionNode -eq $false -and $AbortStatus -eq $false)
+                    Start-Sleep $($Stage.RetryWait)
+                } until ((($null -ne $CurrentUptime) -and ($CurrentUptime -lt $BaseUptime)) -or ($Count -ge $($Stage.MaxRetry)))
+                
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "Begin monitoring ElasticSearch nodes online" -logExField1 "Target Count: $NodeCount"
+                $CurrentNodeCount = $null
+                Do {
+                    Try {
+                        $CurrentNodeCount = Get-EsClusterHealth | Select-Object -ExpandProperty number_of_nodes
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Node Count' -logExField1 "Target: $NodeCount" -logMessage "Current: $CurrentNodeCount"
+                    } Catch {
+                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Node Count' -logExField1 "Target: $NodeCount" -logMessage "Unable to retrieve ElasticSearch Node Count"
+                    }
+                    Start-Sleep $($Stage.RetryWait)
+                } Until ($CurrentNodeCount -eq $NodeCount)
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Node Count' -logMessage "End monitoring ElasticSearch nodes online" -logExField1 "Current Count: $CurrentNodeCount  Target Count: $NodeCount"
 
-                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -Node $($Node.hostname) -logMessage "End Node" 
-            }
-
-            New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
-            if ($Stage.ManualCheck -eq $true) {
-                $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
-                if ($UserDecision -eq 0) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Manual authorization granted.  Proceeding to next stage."
-                    $TransitionStage = $true
+                if (($Count -ge $Stage.MaxRetry) -and ($Stage.MaxRetry -ne -1)) {
+                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Max retries reached"
+                    $AlertCheck -eq $true
                 } else {
-                    New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Aborting rolling restart process due to manual halt."
-                    $AbortStatus = $true
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Host Status' -Node $($Node.hostname) -logMessage "Beginning recovery"
+                    $tmp_VerifyAck = Update-EsIndexRouting -Enable 'all'
+                    if ($tmp_VerifyAck.acknowledged) {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Set Cluster routing transient settings to target: $($tmp_VerifyAck.transient)"
+                    } else {
+                        New-ProcessLog -logSev e -logStage $($Stage.Name) -logStep 'Cluster Routing' -Node $($Node.hostname) -logMessage "Unable to update cluster transient settings to target: all"
+                    }
+
+                    Invoke-MonitorEsRecovery -Stage $Stage.Name -Nodes $RestartOrder -CurrentNode $Node -Sleep $Stage.RetryWait -MaxAttempts $Stage.MaxRetry
                 }
-            } else {
+                                    
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'Begin Step' -logExField1 "Node: $($Node.hostname)"
+                if ($Stage.ManualCheck -eq $true -or $AlertCheck -eq $true) {
+                    $UserDecision = Invoke-SelectionPrompt -Title "Node Complete" -Question "Do you want to proceed onto the next node?"
+                    if ($UserDecision -eq 0) {
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Manual authorization granted.  Proceeding to next stage." -logExField1 "Node: $($Node.hostname)"
+                        $TransitionStage = $true
+                    } else {
+                        New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Aborting rolling restart process due to manual halt." -logExField1 "Node: $($Node.hostname)"
+                        $AbortStatus = $true
+                    }
+                } else {
+                    $TransitionNode = $true
+                }
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -Node $($Node.hostname) -logMessage "Check Required: $($Stage.ManualCheck)" -logExField2 'End Step' -logExField1 "Node: $($Node.hostname)"
+            } While ($TransitionNode -eq $false -and $AbortStatus -eq $false)
+
+            New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -Node $($Node.hostname) -logMessage "End Node" 
+        }
+
+        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Check Required: $($Stage.ManualCheck)" -logExField1 'Begin Step'
+        if ($Stage.ManualCheck -eq $true) {
+            $UserDecision = Invoke-SelectionPrompt -Title "Stage Complete" -Question "Do you want to proceed onto the next stage?"
+            if ($UserDecision -eq 0) {
+                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Manual authorization granted.  Proceeding to next stage."
                 $TransitionStage = $true
+            } else {
+                New-ProcessLog -logSev a -logStage $($Stage.Name) -logStep 'Manual Verify' -logMessage "Aborting rolling restart process due to manual halt."
+                $AbortStatus = $true
             }
+        } else {
+            $TransitionStage = $true
+        }
 
         #} While ($TransitionStage -eq $false -and $AbortStatus -eq $false)
         New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Restart Node' -logMessage "End Stage"
