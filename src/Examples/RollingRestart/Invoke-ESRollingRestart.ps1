@@ -598,7 +598,7 @@ ForEach ($Stage in $Stages) {
                 do {
                     # If the MaxRetry is set to -1, retry indefinently.
                     if ($Stage.MaxRetry -eq -1) {
-                        $Count = 0
+                        $Count = -1
                     } else {
                         $Count += 1
                     }
