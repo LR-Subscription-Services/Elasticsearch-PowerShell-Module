@@ -394,23 +394,25 @@ ForEach ($Stage in $Stages) {
                     } elseif ($HotIndexes.count -eq $Stage.IndexSize) {
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Index Target" -logExField2 "Hot:$($HotIndexes.count) Target:$($Stage.IndexSize)" -logMessage "Hot Index count is equal to Target Index size."
                     } elseif ($HotIndexes.count -gt $Stage.IndexSize) {
-                        $TargetOpenIndexCount = $Stage.IndexSize
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Index Target" -logExField2 "Hot:$($HotIndexes.count) Target:$($Stage.IndexSize)" -logMessage "Hot Index count greater than Target Index size.  Setting Target to current Target Index count."
                         # Reduce target indexes to the quantity defined.
-                        $TargetClosedIndexes = $HotIndexes | Select-Object -First $TargetOpenIndexCount
+                        $TargetClosedIndexes = $HotIndexes | Select-Object -First $Stage.IndexSize
 
-                        if ($TargetOpenIndexCount -eq $HotIndexes.count) {
+                        if ($TargetClosedIndexes -eq $HotIndexes.count) {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logMessage "Current Open Index Count equals Target Index Count" -logExField1 "End Step"
                         } else {
                             # Establish an array of an array of target indexes to support bulk close operations
                             if ($Stage.Bulk_Close -le 0) {
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Segment Target" -logExField2 "Index Count:$($TargetClosedIndexes.count) Close Target:$($Stage.Bulk_Close)" -logMessage "Bulk close set to or below zero.  Defaulting to segment target: 1."
                                 $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments 1
                             } else {
                                 # Default to one segment if Bulk_Close >= TargetIndexCount
-                                if ($Stage.Bulk_Close -ge $TargetClosedIndexes.count) {
+                                if ($TargetClosedIndexes.count -le $Stage.Bulk_Close) {
                                     [int32]$SegmentCount = 1
+                                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Segment Target" -logExField2 "Index Count:$($TargetClosedIndexes.count) Close Target:$($Stage.Bulk_Close)" -logMessage "TargetClosedIndexes less than or equal to Bulk_Close.  Defaulting to segment target: 1."
                                 } else {
                                     [int32]$SegmentCount = $TargetClosedIndexes.count / $Stage.Bulk_Close
+                                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Segment Target" -logExField2 "Index Count:$($TargetClosedIndexes.count) Close Target:$($Stage.Bulk_Close)" -logMessage "Setting segment count to: $SegmentCount"
                                 }
                                 $CloseIndexSegments =  Split-ArraySegments -InputArray $TargetClosedIndexes -Segments $SegmentCount
                             }
