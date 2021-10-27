@@ -396,7 +396,7 @@ ForEach ($Stage in $Stages) {
                     } elseif ($HotIndexes.count -gt $Stage.IndexSize) {
                         New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Index Target" -logExField2 "Hot:$($HotIndexes.count) Target:$($Stage.IndexSize)" -logMessage "Hot Index count greater than Target Index size.  Setting Target to current Target Index count."
                         # Reduce target indexes to the quantity defined.
-                        $TargetClosedIndexes = $HotIndexes | Select-Object -First $Stage.IndexSize
+                        $TargetClosedIndexes = $HotIndexes | Select-Object -First $($HotIndexes.count - $Stage.IndexSize)
 
                         if ($TargetClosedIndexes -eq $HotIndexes.count) {
                             New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logMessage "Current Open Index Count equals Target Index Count" -logExField1 "End Step"
