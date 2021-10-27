@@ -390,12 +390,12 @@ ForEach ($Stage in $Stages) {
                     
                     if ($HotIndexes.count -lt $Stage.IndexSize) {
                         $TargetOpenIndexCount = $HotIndexes.count
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Index Target" -logExField2 "Hot: $($HotIndexes.count) Target: $($Stage.IndexSize)" -logMessage "Hot Index count less than Target Index size.  Setting Target to current Hot Index count."
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Index Target" -logExField2 "Hot:$($HotIndexes.count) Target:$($Stage.IndexSize)" -logMessage "Hot Index count less than Target Index size.  Setting Target to current Hot Index count."
                     } elseif ($HotIndexes.count -eq $Stage.IndexSize) {
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Index Target" -logExField2 "Hot: $($HotIndexes.count) Target: $($Stage.IndexSize)" -logMessage "Hot Index count is equal to Target Index size."
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Index Target" -logExField2 "Hot:$($HotIndexes.count) Target:$($Stage.IndexSize)" -logMessage "Hot Index count is equal to Target Index size."
                     } elseif ($HotIndexes.count -gt $Stage.IndexSize) {
                         $TargetOpenIndexCount = $Stage.IndexSize
-                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Index Target" -logExField2 "Hot: $($HotIndexes.count) Target: $($Stage.IndexSize)" -logMessage "Hot Index count greater than Target Index size.  Setting Target to current Hot Index count."
+                        New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Index Target" -logExField2 "Hot:$($HotIndexes.count) Target:$($Stage.IndexSize)" -logMessage "Hot Index count greater than Target Index size.  Setting Target to current Target Index count."
                         # Reduce target indexes to the quantity defined.
                         $TargetClosedIndexes = $HotIndexes | Select-Object -First $TargetOpenIndexCount
 
@@ -418,8 +418,8 @@ ForEach ($Stage in $Stages) {
     
                             $HotIndexOpen = $HotIndexes.count
                             $HotIndexClosed = $TargetClosedIndexes.count
-                            if ($CloseIndexSegments.count -gt 1) {
-                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($CloseIndexSegments.count)" -logExField1 "Begin Step"
+                            if ($SegmentCount -gt 1) {
+                                New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index - Mode' -logMessage "Segment Count: $($SegmentCount)" -logExField1 "Begin Step"
                                 ForEach ($TargetIndices in $CloseIndexSegments) {
                                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Open:$HotIndexOpen Closed:$($HotIndexClosed) Target:$($Stage.IndexSize)" -logMessage "Closing bulk indices: $($TargetIndices.count)"
                                     $Indices = $([String]::Join(",",$TargetIndices.index))
