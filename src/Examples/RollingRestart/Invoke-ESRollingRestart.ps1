@@ -384,7 +384,7 @@ ForEach ($Stage in $Stages) {
             # Optional - Close down number of cluster indexes to reduce node recovery time
             if ($Node.type -like 'hot') {
                 if ($Stage.IndexSize -gt 0) {
-                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Begin Step" -logMessage "Begin closing indicies to reduce recovery time requirements" 
+                    New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Close Index' -logExField1 "Begin Step" -logMessage "Begin closing indices to reduce recovery time requirements" 
 
                     $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index
                     
@@ -706,7 +706,7 @@ ForEach ($Stage in $Stages) {
 
             $Indexes = Get-EsIndex
             if ($ClosedHotIndexes) {
-                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Begin Step" -logMessage "Opening hot indicies to restore production environment state."
+                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "Begin Step" -logMessage "Opening hot indices to restore production environment state."
 
                 $HotIndexes = $Indexes | Where-Object -FilterScript {($_.index -match 'logs-\d+') -and ($_.status -like 'open') -and ($_.rep -gt 0)} | Sort-Object index              
                 $TargetOpenIndexes = $ClosedHotIndexes
@@ -765,7 +765,7 @@ ForEach ($Stage in $Stages) {
                     New-ProcessLog -logSev i -logStage $($Stage.Name) -logStep 'Open Index - Mode' -logMessage "Segment Size: $($OpenIndexSegments.count)" -logExField1 "End Step"
                 }
                 
-                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "End Step" -logMessage "Opening hot indicies to restore production environment state."
+                New-ProcessLog -logSev s -logStage $($Stage.Name) -logStep 'Open Index' -logExField1 "End Step" -logMessage "Opening hot indices to restore production environment state."
             }
 
             if ($Stage.UserCommands.count -ge 1) {
