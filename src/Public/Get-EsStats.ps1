@@ -31,7 +31,8 @@ Function Get-EsStats {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $false, Position = 0)]
-        [switch] $Stats
+        [string] $Mode
+
     )
     Begin {
         $Headers = [Dictionary[string,string]]::new()
@@ -49,11 +50,12 @@ Function Get-EsStats {
     }
     
     Process {
-        if ($Stats) {
-            $RequestUrl = $BaseUrl + "/_nodes/stats?format=json"
-        } else {
-            $RequestUrl = $BaseUrl + "/_stats?format=json"
+        switch ($Mode) {
+            'nodes' {$RequestUrl = $BaseUrl + "/_nodes/stats?format=json"}
+            'cluster' {$RequestUrl = $BaseUrl + "/_cluster/stats?format=json"}
+            default {$RequestUrl = $BaseUrl + "/_stats?format=json"}
         }
+
 
         Try {
             $Response = Invoke-RestMethod $RequestUrl -Method $Method -Headers $Headers 
