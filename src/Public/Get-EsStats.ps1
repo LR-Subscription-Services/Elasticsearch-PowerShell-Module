@@ -67,7 +67,7 @@ Function Get-EsStats {
                 return $_
             }
         }
-        if ($Stats) {
+        if ($Nodes) {
             $NodeArray = [List[object]]::new()
             ForEach ($Node in $Response.nodes.PSObject.Properties) {
                 
