@@ -1,7 +1,7 @@
 using namespace System
 using namespace System.IO
 using namespace System.Collections.Generic
-Function Invoke-MonitorEsRelocation {
+Function Invoke-MonitorEsInit {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $False, Position = 0)]
@@ -42,7 +42,7 @@ Function Invoke-MonitorEsRelocation {
         $ClusterHealth = Get-EsClusterHealth
         $RetryCounter = 0
         $LastRelocating = 0
-        $CurrentRelocating = 0
+        $CurrentInit = 0
 
         $RecoveryList = $null
         $LastRecovery = [List[object]]::new()
@@ -62,9 +62,9 @@ Function Invoke-MonitorEsRelocation {
             $es_ClusterStatus = $($TC.ToTitleCase($($ClusterHealth.status)))
            
             # Update current Unassigned Shards details
-            $CurrentRelocating = $($ClusterHealth.relocating_shards)
+            $CurrentInit = $($ClusterHealth.initializing_shards)
 
-            if ($CurrentRelocating -gt 0 -and ($CurrentRelocating -eq $LastRelocating)) {
+            if ($CurrentInit -gt 0 -and ($CurrentInit -eq $LastRelocating)) {
                 # Granular inspection of recovery progress
                 $ESRecovery = Get-EsRecovery | Sort-Object index
                 if ($ESRecovery) {
@@ -86,7 +86,7 @@ Function Invoke-MonitorEsRelocation {
                     }
                     if ($null -ne $LastRecovery) {
                         ForEach ($Recovery in $RecoveryList) {
-                            New-ProcessLog -logSev i -logStage $Stage -logStep 'Relocation Progress' -Node $($CurrentNode.hostname) -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "File: $($Recovery.File)%  Bytes: $($Recovery.Bytes)%  Translog: $($Recovery.Trans)%" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                            New-ProcessLog -logSev i -logStage $Stage -logStep 'Initializing Progress' -Node $($CurrentNode.hostname) -index $($Recovery.Index) -logExField1 "Shards: $($Recovery.Shards)" -logMessage "File: $($Recovery.File)%  Bytes: $($Recovery.Bytes)%  Translog: $($Recovery.Trans)%" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                         }
 
                         # Print a Unassigned Shard status update periodically.
@@ -95,28 +95,28 @@ Function Invoke-MonitorEsRelocation {
                                 if ($RetryMax -ne -1) {
                                     $RetryMax += 1
                                 }
-                                New-ProcessLog -logSev i -logStage $Stage -logStep 'Relocating Shards' -Node $($CurrentNode.hostname) -logExField1 'Relocation Progress' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                                New-ProcessLog -logSev i -logStage $Stage -logStep 'Initializing Shards' -Node $($CurrentNode.hostname) -logExField1 'Initializing Progress' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                             } else {
                                 if ($RetryCounter -eq 1) {
-                                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Relocating Shards' -Node $($CurrentNode.hostname) -logExField1 'Relocation Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Initializing Shards' -Node $($CurrentNode.hostname) -logExField1 'Initializing Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                                 } else {
-                                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Relocating Shards' -Node $($CurrentNode.hostname) -logExField1 'Relocation Stalled' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Initializing Shards' -Node $($CurrentNode.hostname) -logExField1 'Initializing Stalled' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                                 }
                             }
                         }
                     }
                 }
-            } elseif ($CurrentRelocating -gt 0 -and ($CurrentRelocating -ne $LastRelocating)) {
+            } elseif ($CurrentInit -gt 0 -and ($CurrentInit -ne $LastRelocating)) {
                 # Higher level overview of recovery progress
                 if ($RetryMax -ne -1) {
                     $RetryMax += 1
                 }
-                New-ProcessLog -logSev i -logStage $Stage -logStep 'Relocating Shards' -Node $($CurrentNode.hostname) -logExField1 'Relocation Progress' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                New-ProcessLog -logSev i -logStage $Stage -logStep 'Initializing Shards' -Node $($CurrentNode.hostname) -logExField1 'Initializing Progress' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
             } else {
                 if ($RetryCounter -eq 1) {
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Relocating Shards' -Node $($CurrentNode.hostname) -logExField1 'Relocation Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Initializing Shards' -Node $($CurrentNode.hostname) -logExField1 'Initializing Starting' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                 } else {
-                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Relocating Shards' -Node $($CurrentNode.hostname) -logExField1 'Relocation Stalled' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
+                    New-ProcessLog -logSev i -logStage $Stage -logStep 'Initializing Shards' -Node $($CurrentNode.hostname) -logExField1 'Initializing Stalled' -logMessage "Unassigned: $($ClusterHealth.unassigned_shards)  Initializing: $($ClusterHealth.initializing_shards)" -logRetryMax $RetryMax -logRetryCurrent $RetryCounter
                 }
             }
 
