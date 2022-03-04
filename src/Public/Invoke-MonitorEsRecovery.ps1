@@ -4,14 +4,14 @@ using namespace System.Collections.Generic
 Function Invoke-MonitorEsRecovery {
     [CmdletBinding()]
     Param(
-        [Parameter(Mandatory = $True, Position = 0)]
-        [string] $Stage,
+        [Parameter(Mandatory = $False, Position = 0)]
+        [string] $Stage = "Manual",
 
         [Parameter(Mandatory = $false, Position = 1)]
         [Int] $Sleep,
 
         [Parameter(Mandatory = $false, Position = 2)]
-        [int] $MaxAttempts,
+        [int] $MaxAttempts = -1,
 
         [Parameter(Mandatory = $true, Position = 3)]
         [object] $Nodes,
