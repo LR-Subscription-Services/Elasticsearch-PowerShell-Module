@@ -13,7 +13,7 @@ Function Invoke-MonitorEsInit {
         [Parameter(Mandatory = $false, Position = 2)]
         [int] $MaxAttempts = -1,
 
-        [Parameter(Mandatory = $true, Position = 3)]
+        [Parameter(Mandatory = $false, Position = 3)]
         [object] $Nodes,
 
         [Parameter(Mandatory = $false, Position = 4)]
