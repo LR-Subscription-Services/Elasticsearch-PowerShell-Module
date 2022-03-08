@@ -51,7 +51,7 @@ Function Invoke-MonitorEsInit {
     Process {
         Do {
             # Retrieve cluster health
-            $LastRelocating = $($ClusterHealth.unassigned_shards)
+            $LastRelocating = $($ClusterHealth.initializing_shards)
 
             # Capture previous Recovery counters if they are present as a variable
             if ($null -ne $RecoveryList) {
