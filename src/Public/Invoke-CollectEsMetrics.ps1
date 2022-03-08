@@ -43,19 +43,15 @@ Function Invoke-CollectEsMetrics {
 
 
                 $TimeDiff = New-TimeSpan -Start $(get-date) -End $nextRun
-            }
-
-            if ([int]$TimeDiff.TotalSeconds -le 0) {} else {
+            } else {
                 Write-Output "Sleeping $($TimeDiff.TotalSeconds)s"
                 Start-Sleep $($TimeDiff.TotalSeconds)
                 $nextRun = $(get-date).AddSeconds($Interval)
             }
-            $TimeDiff = 0
         } while ($Run)
     }
 
 
     End {
-
     }
 }
