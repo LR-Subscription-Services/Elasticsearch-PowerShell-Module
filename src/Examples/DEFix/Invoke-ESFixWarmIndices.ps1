@@ -6,6 +6,7 @@ ForEach ($Index in $Indices[0..1]) {
     $IndexSettings = Get-EsIndexSettings -Index $Index.Index
     Write-Host "Index: $($Index.Index) Status: $($Index.status) UUID: $($Index.uuid) Version: $($IndexSettings.version.created) Type: $($IndexSettings.routing.allocation.require.box_type)  Replicas: $($IndexSettings.number_of_replicas)"
     if (($($IndexSettings.version.created) -eq 6081599) -and ($IndexSettings.routing.allocation.require.box_type -like 'warm') -and ($IndexSettings.number_of_replicas -eq 0)) {
+        Invoke-MonitorEsInit 
         Open-EsIndex -Index $($Index.Index)
         Invoke-MonitorEsInit 
         Update-EsIndexReplicas -Index $($Index.Index) -Replicas 1
