@@ -1,3 +1,4 @@
+using namespace System.Collections.Generic
 Function Send-EsMessage {
     [CmdletBinding()]
     Param(
@@ -22,7 +23,7 @@ Function Send-EsMessage {
 
     Process {
        
-        $Body = $Body | ConvertTo-Json
+        $Body = $Body | ConvertTo-Json -Depth 4
         write-verbose "JSON Body:`n$Body"
 
         $RequestUrl = $BaseUrl + "/$Index/message"
@@ -37,6 +38,8 @@ Function Send-EsMessage {
             }
         }
 
-        return $Response
+        if ($PassThru) {
+            return $Response
+        }
     }
 }
