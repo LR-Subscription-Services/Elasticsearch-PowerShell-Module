@@ -10,9 +10,9 @@ Function Invoke-CollectEsMetrics {
 
     Process {
        do {
-            
             if ($(get-date) -ge $nextRun) {
                 # $Timer = [System.Diagnostics.Stopwatch]::StartNew()
+                $indexDate = [DateTime]::UtcNow.ToString("yyyy.MM.dd")
                 $Response = Get-EsClusterHealth
                 $ClusterName = $Response.cluster_name
                 $Response | add-member -Name "@timestamp" -Value ([DateTime]::Now.ToUniversalTime().ToString("o")) -MemberType NoteProperty
@@ -21,23 +21,25 @@ Function Invoke-CollectEsMetrics {
                     'yellow' {$Response | add-member -Name "status_code" -Value 1 -MemberType NoteProperty}
                     'red' {$Response | add-member -Name "status_code" -Value 2 -MemberType NoteProperty}
                 }
-                Send-EsMessage -Index 'elasticsearch_prod_metrics' -Body $($Response | ConvertTo-Json -Depth 7 -Compress)
+                Send-EsMessage -Index "elasticsearch_prod_metrics-$($indexDate)" -Body $Response
 
                 $Response = Get-EsStats -Mode 'cluster'
                 $Response | add-member -Name "@timestamp" -Value ([DateTime]::Now.ToUniversalTime().ToString("o")) -MemberType NoteProperty
-                Send-EsMessage -Index 'elasticsearch_prod_metrics' -Body $($Response | ConvertTo-Json -Depth 7 -Compress)
+                Send-EsMessage -Index "elasticsearch_prod_metrics-$($indexDate)" -Body $Response
 
                 $Response = Get-EsStats -Mode 'nodes'
                 ForEach ($Node in $Response.nodes) {
                     $Node | add-member -Name "@timestamp" -Value ([DateTime]::Now.ToUniversalTime().ToString("o")) -MemberType NoteProperty -Force
                     $Node | add-member -Name "cluster_name" -Value $ClusterName -MemberType NoteProperty -Force
-                    Send-EsMessage -Index 'elasticsearch_prod_metrics' -Body $($Node | ConvertTo-Json -Depth 7 -Compress)
+                    $Node | add-member -Name "node_id" -Value $Node.id -MemberType NoteProperty -Force
+                    $Node.PSObject.properties.remove('id')
+                    $res = Send-EsMessage -Index "elasticsearch_prod_metrics-$($indexDate)" -Body $Node -PassThru
                 }
 
                 $Response = Get-EsStats
-                $Response | add-member -Name "@timestamp" -Value ([DateTime]::Now.ToUniversalTime().ToString("o")) -MemberType NoteProperty -Force
-                $Response | add-member -Name "cluster_name" -Value $ClusterName -MemberType NoteProperty -Force
-                Send-EsMessage -Index 'elasticsearch_prod_metrics' -Body $($Response | ConvertTo-Json -Depth 7 -Compress)
+                $Response._all | add-member -Name "@timestamp" -Value ([DateTime]::Now.ToUniversalTime().ToString("o")) -MemberType NoteProperty -Force
+                $Response._all | add-member -Name "cluster_name" -Value $ClusterName -MemberType NoteProperty -Force
+                $res = Send-EsMessage -Index "elasticsearch_prod_metrics-$($indexDate)" -Body $Response._all -Passthru
 
 
                 $TimeDiff = New-TimeSpan -Start $(get-date) -End $nextRun
